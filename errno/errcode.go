@@ -945,6 +945,7 @@ const (
 	ErrFKIncompatibleColumns                                        = 3780
 	ErrFunctionalIndexRowValueIsNotAllowed                          = 3800
 	ErrColumnCheckConstraintReferOther                              = 3813
+	ErrCheckConstraintViolated                                      = 3819
 	ErrTableCheckConstraintReferUnknown                             = 3820
 	ErrDependentByFunctionalIndex                                   = 3837
 	ErrInvalidJSONValueForFuncIndex                                 = 3903
