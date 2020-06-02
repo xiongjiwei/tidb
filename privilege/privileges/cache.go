@@ -264,6 +264,7 @@ func (p *MySQLPrivilege) FindAllRole(activeRoles []*auth.RoleIdentity) []*auth.R
 	return ret
 }
 
+// IncLoginFail ...
 func (p *MySQLPrivilege) IncLoginFail(user, host string) int {
 	key := user + "@" + host
 	cnt, exist := p.PwdErrorCnt[key]
@@ -275,6 +276,7 @@ func (p *MySQLPrivilege) IncLoginFail(user, host string) int {
 	return 1
 }
 
+// ClearLoginFail ...
 func (p *MySQLPrivilege) ClearLoginFail(user, host string) {
 	key := user + "@" + host
 	if p.PwdErrorCnt == nil {
@@ -283,6 +285,7 @@ func (p *MySQLPrivilege) ClearLoginFail(user, host string) {
 	p.PwdErrorCnt[key] = 0
 }
 
+// LockAccount ...
 func (p *MySQLPrivilege) LockAccount(user, host string, sctx sessionctx.Context) error {
 	lock := types.CurrentTime(0)
 	ctx := context.Background()
@@ -291,13 +294,14 @@ func (p *MySQLPrivilege) LockAccount(user, host string, sctx sessionctx.Context)
 	return err
 }
 
+// CheckAccountLock ...
 func (p *MySQLPrivilege) CheckAccountLock(user, host string, sctx sessionctx.Context, limit time.Duration) bool {
 	recs, exist := p.BlackList[user]
 	if exist {
 		for _, r := range recs {
 			if r.Host == host {
 				t := r.startTime
-				if time.Now().Sub(t) > limit*time.Second {
+				if time.Since(t) > limit*time.Second {
 					ctx := context.Background()
 					sql := fmt.Sprintf("delete from mysql.login_blacklist where user = '%s' and host = '%s'", user, host)
 					_, err := sctx.(sqlexec.SQLExecutor).Execute(ctx, sql)
@@ -305,15 +309,15 @@ func (p *MySQLPrivilege) CheckAccountLock(user, host string, sctx sessionctx.Con
 						// ignore
 					}
 					return false
-				} else {
-					return true
 				}
+				return true
 			}
 		}
 	}
 	return false
 }
 
+// LoadBlackList ...
 func (p *MySQLPrivilege) LoadBlackList(ctx sessionctx.Context) error {
 	p.BlackList = make(map[string][]blackListItem)
 	err := p.loadTable(ctx, "select HOST, USER, lock_time from mysql.login_blacklist;", p.decodeBlackListRow)
