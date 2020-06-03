@@ -148,7 +148,7 @@ func (p *UserPrivileges) GetAuthWithoutVerification(user, host string) (u string
 	return
 }
 
-// CheckAccountLock return if the account has been locked.
+// CheckAccountLocked return if the account has been locked.
 func (p *UserPrivileges) CheckAccountLocked(ctx sessionctx.Context, user, host string) bool {
 	if SkipWithGrant {
 		return false
@@ -183,6 +183,7 @@ func (p *UserPrivileges) CheckAccountLocked(ctx sessionctx.Context, user, host s
 	return false
 }
 
+// IncFailTimer ...
 func (p *UserPrivileges) IncFailTimer(ctx sessionctx.Context, user, host string) {
 	if SkipWithGrant {
 		return
