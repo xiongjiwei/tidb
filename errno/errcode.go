@@ -947,11 +947,13 @@ const (
 	ErrColumnCheckConstraintReferOther                              = 3813
 	ErrCheckConstraintViolated                                      = 3819
 	ErrTableCheckConstraintReferUnknown                             = 3820
+	ErrCheckConstraintDuplicate                                     = 3822
 	ErrDependentByFunctionalIndex                                   = 3837
 	ErrInvalidJSONValueForFuncIndex                                 = 3903
 	ErrJSONValueOutOfRangeForFuncIndex                              = 3904
 	ErrFunctionalIndexDataIsTooLong                                 = 3907
 	ErrFunctionalIndexNotApplicable                                 = 3909
+	ErrConstraintDoesNotExist                                       = 3940
 
 	// MariaDB errors.
 	ErrOnlyOneDefaultPartionAllowed         = 4030

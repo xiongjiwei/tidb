@@ -943,12 +943,14 @@ var MySQLErrName = map[uint16]string{
 	ErrFunctionalIndexRowValueIsNotAllowed:                   "Expression of functional index '%s' cannot refer to a row value",
 	ErrColumnCheckConstraintReferOther:                       "Column check constraint '%s' references other column.",
 	ErrTableCheckConstraintReferUnknown:                      "Check constraint '%s' refers to non-existing column '%s'.",
+	ErrCheckConstraintDuplicate:                              "Duplicate check constraint name '%s'.",
 	ErrDependentByFunctionalIndex:                            "Column '%s' has a functional index dependency and cannot be dropped or renamed",
 	ErrInvalidJSONValueForFuncIndex:                          "Invalid JSON value for CAST for functional index '%s'",
 	ErrJSONValueOutOfRangeForFuncIndex:                       "Out of range JSON value for CAST for functional index '%s'",
 	ErrFunctionalIndexDataIsTooLong:                          "Data too long for functional index '%s'",
 	ErrFunctionalIndexNotApplicable:                          "Cannot use functional index '%s' due to type or collation conversion",
 	ErrCheckConstraintViolated:                               "Check constraint '%s' is violated.",
+	ErrConstraintDoesNotExist:                                "Constraint '%s' does not exist",
 
 	// MariaDB errors.
 	ErrOnlyOneDefaultPartionAllowed:         "Only one DEFAULT partition allowed",
