@@ -58,7 +58,7 @@ type TableCommon struct {
 	VisibleColumns      []*table.Column
 	HiddenColumns       []*table.Column
 	WritableColumns     []*table.Column
-	PublicConstraints   []*table.Constraint
+	Constraints   []*table.Constraint
 	WritableConstraints []*table.Constraint
 	writableIndices     []table.Index
 	indices             []table.Index
@@ -173,7 +173,7 @@ func initTableCommon(t *TableCommon, tblInfo *model.TableInfo, physicalTableID i
 	t.allocs = allocs
 	t.meta = tblInfo
 	t.Columns = cols
-	t.PublicConstraints = constraints
+	t.Constraints = constraints
 	t.PublicColumns = t.Cols()
 	t.VisibleColumns = t.VisibleCols()
 	t.HiddenColumns = t.HiddenCols()
@@ -309,11 +309,11 @@ func (t *TableCommon) WritableConstraint() []*table.Constraint {
 	if len(t.WritableConstraints) > 0 {
 		return t.WritableConstraints
 	}
-	if t.PublicConstraints == nil {
+	if t.Constraints == nil {
 		return nil
 	}
-	writeableConstraint := make([]*table.Constraint, 0, len(t.PublicConstraints))
-	for _, con := range t.PublicConstraints {
+	writeableConstraint := make([]*table.Constraint, 0, len(t.Constraints))
+	for _, con := range t.Constraints {
 		if con.State == model.StateDeleteOnly || con.State == model.StateDeleteReorganization {
 			continue
 		}
