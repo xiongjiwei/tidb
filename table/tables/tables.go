@@ -39,6 +39,7 @@ import (
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util"
+	"github.com/pingcap/tidb/util/chunk"
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/tidb/util/logutil"
 	"github.com/pingcap/tidb/util/stringutil"
@@ -57,8 +58,8 @@ type TableCommon struct {
 	VisibleColumns      []*table.Column
 	HiddenColumns       []*table.Column
 	WritableColumns     []*table.Column
-	PublicConstraints   []table.Constraint
-	WritableConstraints []table.Constraint
+	Constraints   []*table.Constraint
+	WritableConstraints []*table.Constraint
 	writableIndices     []table.Index
 	indices             []table.Index
 	meta                *model.TableInfo
@@ -78,8 +79,17 @@ func MockTableFromMeta(tblInfo *model.TableInfo) table.Table {
 		columns = append(columns, col)
 	}
 
+	constraints := make([]*table.Constraint, 0, len(tblInfo.Constraints))
+	for _, constraintInfo := range tblInfo.Constraints {
+		constraint, err := table.ToConstraint(constraintInfo, tblInfo)
+		if err != nil {
+			return nil
+		}
+		constraints = append(constraints, constraint)
+	}
+
 	var t TableCommon
-	initTableCommon(&t, tblInfo, tblInfo.ID, columns, nil)
+	initTableCommon(&t, tblInfo, tblInfo.ID, columns, constraints, nil)
 	if tblInfo.GetPartitionInfo() == nil {
 		if err := initTableIndices(&t); err != nil {
 			return nil
@@ -135,8 +145,17 @@ func TableFromMeta(allocs autoid.Allocators, tblInfo *model.TableInfo) (table.Ta
 		columns = append(columns, col)
 	}
 
+	constraints := make([]*table.Constraint, 0, len(tblInfo.Constraints))
+	for _, conInfo := range tblInfo.Constraints {
+		con, err := table.ToConstraint(conInfo, tblInfo)
+		if err != nil {
+			return nil, err
+		}
+		constraints = append(constraints, con)
+	}
+
 	var t TableCommon
-	initTableCommon(&t, tblInfo, tblInfo.ID, columns, allocs)
+	initTableCommon(&t, tblInfo, tblInfo.ID, columns, constraints, allocs)
 	if tblInfo.GetPartitionInfo() == nil {
 		if err := initTableIndices(&t); err != nil {
 			return nil, err
@@ -148,17 +167,19 @@ func TableFromMeta(allocs autoid.Allocators, tblInfo *model.TableInfo) (table.Ta
 }
 
 // initTableCommon initializes a TableCommon struct.
-func initTableCommon(t *TableCommon, tblInfo *model.TableInfo, physicalTableID int64, cols []*table.Column, allocs autoid.Allocators) {
+func initTableCommon(t *TableCommon, tblInfo *model.TableInfo, physicalTableID int64, cols []*table.Column, constraints []*table.Constraint, allocs autoid.Allocators) {
 	t.tableID = tblInfo.ID
 	t.physicalTableID = physicalTableID
 	t.allocs = allocs
 	t.meta = tblInfo
 	t.Columns = cols
+	t.Constraints = constraints
 	t.PublicColumns = t.Cols()
 	t.VisibleColumns = t.VisibleCols()
 	t.HiddenColumns = t.HiddenCols()
 	t.WritableColumns = t.WritableCols()
 	t.writableIndices = t.WritableIndices()
+	t.WritableConstraints = t.WritableConstraint()
 	t.recordPrefix = tablecodec.GenTableRecordPrefix(physicalTableID)
 	t.indexPrefix = tablecodec.GenTableIndexPrefix(physicalTableID)
 	if tblInfo.IsSequence() {
@@ -181,8 +202,8 @@ func initTableIndices(t *TableCommon) error {
 	return nil
 }
 
-func initTableCommonWithIndices(t *TableCommon, tblInfo *model.TableInfo, physicalTableID int64, cols []*table.Column, allocs autoid.Allocators) error {
-	initTableCommon(t, tblInfo, physicalTableID, cols, allocs)
+func initTableCommonWithIndices(t *TableCommon, tblInfo *model.TableInfo, physicalTableID int64, cols []*table.Column, constraints []*table.Constraint, allocs autoid.Allocators) error {
+	initTableCommon(t, tblInfo, physicalTableID, cols, constraints, allocs)
 	return initTableIndices(t)
 }
 
@@ -284,6 +305,23 @@ func (t *TableCommon) WritableCols() []*table.Column {
 	return writableColumns
 }
 
+func (t *TableCommon) WritableConstraint() []*table.Constraint {
+	if len(t.WritableConstraints) > 0 {
+		return t.WritableConstraints
+	}
+	if t.Constraints == nil {
+		return nil
+	}
+	writeableConstraint := make([]*table.Constraint, 0, len(t.Constraints))
+	for _, con := range t.Constraints {
+		if con.State == model.StateDeleteOnly || con.State == model.StateDeleteReorganization {
+			continue
+		}
+		writeableConstraint = append(writeableConstraint, con)
+	}
+	return writeableConstraint
+}
+
 // DeletableCols implements table DeletableCols interface.
 func (t *TableCommon) DeletableCols() []*table.Column {
 	return t.Columns
@@ -338,6 +376,8 @@ func (t *TableCommon) UpdateRecord(ctx sessionctx.Context, h int64, oldData, new
 		binlogNewRow = make([]types.Datum, 0, numColsCap)
 	}
 
+	rowToCheck := make([]types.Datum, 0, numColsCap)
+
 	for _, col := range t.WritableCols() {
 		var value types.Datum
 		if col.State != model.StatePublic {
@@ -352,10 +392,23 @@ func (t *TableCommon) UpdateRecord(ctx sessionctx.Context, h int64, oldData, new
 			colIDs = append(colIDs, col.ID)
 			row = append(row, value)
 		}
+		rowToCheck = append(rowToCheck, value)
 		if shouldWriteBinlog(ctx) && !t.canSkipUpdateBinlog(col, value) {
 			binlogColIDs = append(binlogColIDs, col.ID)
 			binlogOldRow = append(binlogOldRow, oldData[col.Offset])
 			binlogNewRow = append(binlogNewRow, value)
+		}
+	}
+
+	if len(t.WritableConstraint()) != 0 {
+		for _, constraint := range t.WritableConstraint() {
+			ok, isNull, err := constraint.ConstraintExpr.EvalInt(ctx, chunk.MutRowFromDatums(rowToCheck).ToRow())
+			if err != nil {
+				return err
+			}
+			if ok == 0 && !isNull {
+				return table.ErrCheckConstraintViolated.FastGenByArgs(constraint.Name.O)
+			}
 		}
 	}
 
@@ -526,6 +579,7 @@ func (t *TableCommon) AddRecord(ctx sessionctx.Context, r []types.Datum, opts ..
 	var row, binlogRow []types.Datum
 	colIDs = make([]int64, 0, len(r))
 	row = make([]types.Datum, 0, len(r))
+	rowToCheck := make([]types.Datum, 0, len(r))
 
 	for _, col := range t.WritableCols() {
 		var value types.Datum
@@ -547,11 +601,23 @@ func (t *TableCommon) AddRecord(ctx sessionctx.Context, r []types.Datum, opts ..
 		} else {
 			value = r[col.Offset]
 		}
+		rowToCheck = append(rowToCheck, value)
 		if !t.canSkip(col, value) {
 			colIDs = append(colIDs, col.ID)
 			row = append(row, value)
 		}
 	}
+
+	for _, constraint := range t.WritableConstraint() {
+		ok, isNull, err := constraint.ConstraintExpr.EvalInt(ctx, chunk.MutRowFromDatums(r).ToRow())
+		if err != nil {
+			return 0, err
+		}
+		if ok == 0 && !isNull {
+			return 0, table.ErrCheckConstraintViolated.FastGenByArgs(constraint.Name.O)
+		}
+	}
+
 	writeBufs := sessVars.GetWriteStmtBufs()
 	adjustRowValuesBuf(writeBufs, len(row))
 	key := t.RecordKey(recordID)
