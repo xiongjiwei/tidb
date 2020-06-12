@@ -215,7 +215,7 @@ func rollingbackAddConstraint(t *meta.Meta, job *model.Job) (ver int64, err erro
 }
 
 func rollingbackDropConstraint(t *meta.Meta, job *model.Job) (ver int64, err error) {
-	tblInfo, constrInfoInMeta, err := checkDropCheckConstraint(t, job)
+	_, constrInfoInMeta, err := checkDropCheckConstraint(t, job)
 	if err != nil {
 		return ver, errors.Trace(err)
 	}
@@ -223,7 +223,6 @@ func rollingbackDropConstraint(t *meta.Meta, job *model.Job) (ver int64, err err
 	// StatePublic means when the job is not running yet.
 	if constrInfoInMeta.State == model.StatePublic {
 		job.State = model.JobStateCancelled
-		job.FinishTableJob(model.JobStateRollbackDone, model.StatePublic, ver, tblInfo)
 		return ver, errCancelledDDLJob
 	}
 	// Can not rollback like drop other element, so just continue to drop constraint.

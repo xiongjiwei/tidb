@@ -88,9 +88,17 @@ func (w *worker) onAddCheckConstraint(d *ddlCtx, t *meta.Meta, job *model.Job) (
 		ver, err = updateVersionAndTableInfoWithCheck(t, job, tblInfo, originalState != constraintInfoInMeta.State)
 	case model.StateWriteOnly:
 		// write only -> public
-		err = w.addTableCheckConstraint(dbInfo, tblInfo, constraintInfoInMeta, job)
-		if err != nil {
-			return ver, errors.Trace(err)
+		skipCheck := false
+		failpoint.Inject("mockPassAddConstraintCheck", func(val failpoint.Value) {
+			if val.(bool) {
+				skipCheck = true
+			}
+		})
+		if !skipCheck {
+			err = w.addTableCheckConstraint(dbInfo, tblInfo, constraintInfoInMeta, job)
+			if err != nil {
+				return ver, errors.Trace(err)
+			}
 		}
 		constraintInfoInMeta.State = model.StatePublic
 		ver, err = updateVersionAndTableInfo(t, job, tblInfo, originalState != constraintInfoInMeta.State)
@@ -159,11 +167,19 @@ func (w *worker) onAlterCheckConstraint(t *meta.Meta, job *model.Job) (ver int64
 
 	// enforced will fetch table data and check the constraint.
 	if constraintInfo.Enforced != enforced && enforced {
-		err = w.addTableCheckConstraint(dbInfo, tblInfo, constraintInfo, job)
-		if err != nil {
-			// check constraint error will cancel the job, job state has been changed
-			// to cancelled in addTableCheckConstraint.
-			return ver, errors.Trace(err)
+		skipCheck := false
+		failpoint.Inject("mockPassAlterConstraintCheck", func(val failpoint.Value) {
+			if val.(bool) {
+				skipCheck = true
+			}
+		})
+		if !skipCheck {
+			err = w.addTableCheckConstraint(dbInfo, tblInfo, constraintInfo, job)
+			if err != nil {
+				// check constraint error will cancel the job, job state has been changed
+				// to cancelled in addTableCheckConstraint.
+				return ver, errors.Trace(err)
+			}
 		}
 	}
 	constraintInfo.Enforced = enforced
@@ -329,7 +345,6 @@ func (w *worker) addTableCheckConstraint(dbInfo *model.DBInfo, tableInfo *model.
 	// Prepare internal SQL to fetch data from physical table under .
 	sql := fmt.Sprintf("select * from `%s`.`%s` where ", dbInfo.Name.L, tableInfo.Name.L)
 	sql = sql + " not " + constr.ExprString + " limit 1"
-	fmt.Println("check sql: ", sql)
 	rows, _, err := ctx.(sqlexec.RestrictedSQLExecutor).ExecRestrictedSQL(sql)
 	if err != nil {
 		return errors.Trace(err)
