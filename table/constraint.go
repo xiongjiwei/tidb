@@ -31,6 +31,7 @@ type Constraint struct {
 	ConstraintExpr expression.Expression
 }
 
+// ToConstraint ...
 func ToConstraint(constraintInfo *model.ConstraintInfo, tblInfo *model.TableInfo) (*Constraint, error) {
 	ctx := mock.NewContext()
 	dbName := model.NewCIStr(ctx.GetSessionVars().CurrentDB)
@@ -57,6 +58,7 @@ func buildConstraintExpression(ctx sessionctx.Context, exprString string,
 	return exprs[0], nil
 }
 
+// ToInfo ...
 func (c *Constraint) ToInfo() *model.ConstraintInfo {
 	return c.ConstraintInfo
 }

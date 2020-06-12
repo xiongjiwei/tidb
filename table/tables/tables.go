@@ -58,7 +58,7 @@ type TableCommon struct {
 	VisibleColumns      []*table.Column
 	HiddenColumns       []*table.Column
 	WritableColumns     []*table.Column
-	Constraints   []*table.Constraint
+	Constraints         []*table.Constraint
 	WritableConstraints []*table.Constraint
 	writableIndices     []table.Index
 	indices             []table.Index
@@ -305,6 +305,7 @@ func (t *TableCommon) WritableCols() []*table.Column {
 	return writableColumns
 }
 
+// WritableConstraint ...
 func (t *TableCommon) WritableConstraint() []*table.Constraint {
 	if len(t.WritableConstraints) > 0 {
 		return t.WritableConstraints

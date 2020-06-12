@@ -287,9 +287,9 @@ func (s *testSequenceSuite) TestAlterTableAlterCheckConstraints(c *C) {
 	c.Assert(constrs[1].ExprString, Equals, "`a` > 0")
 
 	// Alter constraint alter constraint with unknown name.
-	_, err := s.tk.Exec("alter table t alter constraint unkown not enforced")
+	_, err := s.tk.Exec("alter table t alter constraint unknown not enforced")
 	c.Assert(err, NotNil)
-	c.Assert(err.Error(), Equals, "[ddl:3940]Constraint 'unkown' does not exist")
+	c.Assert(err.Error(), Equals, "[ddl:3940]Constraint 'unknown' does not exist")
 
 	// Alter table alter constraint with user name.
 	s.tk.MustExec("alter table t alter constraint haha not enforced")
@@ -319,5 +319,5 @@ func (s *testSequenceSuite) TestAlterTableAlterCheckConstraints(c *C) {
 	s.tk.MustExec("insert into t values(1, 0)")
 	_, err = s.tk.Exec("alter table t alter constraint haha enforced")
 	c.Assert(err, NotNil)
-	c.Assert(err.Error(), Equals, "[ddl:3819]Check constraint 'haha' is violated")
+	c.Assert(err.Error(), Equals, "[ddl:3819]Check constraint 'haha' is violated.")
 }

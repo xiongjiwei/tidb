@@ -209,5 +209,5 @@ var (
 	// ErrConstraintDoesNotExist is returned for dropping a non-existent constraint.
 	ErrConstraintDoesNotExist = terror.ClassDDL.New(mysql.ErrConstraintDoesNotExist, mysql.MySQLErrName[mysql.ErrConstraintDoesNotExist])
 	// ErrCheckConstraintIsViolated is returned for violating the a existed check constraint.
-	ErrCheckConstraintIsViolated = terror.ClassDDL.New(mysql.ErrCheckConstraintIsViolated, mysql.MySQLErrName[mysql.ErrCheckConstraintIsViolated])
+	ErrCheckConstraintIsViolated = terror.ClassDDL.New(mysql.ErrCheckConstraintViolated, mysql.MySQLErrName[mysql.ErrCheckConstraintViolated])
 )

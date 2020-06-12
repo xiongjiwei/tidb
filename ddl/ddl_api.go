@@ -3890,7 +3890,7 @@ func (d *ddl) CreateCheckConstraint(ctx sessionctx.Context, ti ast.Ident, constr
 		existedColsMap[v.Name.L] = struct{}{}
 	}
 
-	dependedColsMap := findDependedColsMapInCheckConstraintExpr(constr.Expr)
+	dependedColsMap := findDependedColsMapInExpr(constr.Expr)
 	dependedCols := make([]model.CIStr, 0, len(dependedColsMap))
 	for k := range dependedColsMap {
 		if _, ok := existedColsMap[k]; !ok {
