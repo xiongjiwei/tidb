@@ -82,7 +82,7 @@ func (w *worker) onAddCheckConstraint(d *ddlCtx, t *meta.Meta, job *model.Job) (
 	originalState := constraintInfoInMeta.State
 	switch constraintInfoInMeta.State {
 	case model.StateNone:
-		// none -> delete only
+		// none -> write only
 		job.SchemaState = model.StateWriteOnly
 		constraintInfoInMeta.State = model.StateWriteOnly
 		ver, err = updateVersionAndTableInfoWithCheck(t, job, tblInfo, originalState != constraintInfoInMeta.State)
@@ -236,7 +236,7 @@ func checkAddCheckConstraint(t *meta.Meta, job *model.Job) (*model.DBInfo, *mode
 	constraintInfo2 := tblInfo.FindConstraintInfoByName(constraintInfo1.Name.L)
 	if constraintInfo2 != nil {
 		if constraintInfo2.State == model.StatePublic {
-			// We already have a column with the same column name.
+			// We already have a constraint with the same constraint name.
 			job.State = model.JobStateCancelled
 			return nil, nil, nil, nil, infoschema.ErrColumnExists.GenWithStackByArgs(constraintInfo1.Name)
 		}
@@ -342,14 +342,13 @@ func (w *worker) addTableCheckConstraint(dbInfo *model.DBInfo, tableInfo *model.
 	// If there is any row can't pass the check expression, the add constraint action will error.
 	// It's no need to construct expression node out and pull the chunk rows through it. Here we
 	// can let the check expression restored string as the filter in where clause directly.
-	// Prepare internal SQL to fetch data from physical table under .
-	sql := fmt.Sprintf("select * from `%s`.`%s` where ", dbInfo.Name.L, tableInfo.Name.L)
-	sql = sql + " not " + constr.ExprString + " limit 1"
+	// Prepare internal SQL to fetch data from physical table under this filter.
+	sql := fmt.Sprintf("select count(1) from `%s`.`%s` where not %s limit 1", dbInfo.Name.L, tableInfo.Name.L, constr.ExprString)
 	rows, _, err := ctx.(sqlexec.RestrictedSQLExecutor).ExecRestrictedSQL(sql)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	rowCount := len(rows)
+	rowCount := rows[0].GetInt64(0)
 	if rowCount != 0 {
 		// If check constraint fail, the job state should be changed to canceled, otherwise it will tracked in.
 		job.State = model.JobStateCancelled
