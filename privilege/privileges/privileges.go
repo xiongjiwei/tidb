@@ -22,6 +22,7 @@ import (
 
 	"github.com/pingcap/parser/auth"
 	"github.com/pingcap/parser/mysql"
+	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/infoschema"
 	"github.com/pingcap/tidb/infoschema/perfschema"
 	"github.com/pingcap/tidb/privilege"
@@ -83,7 +84,23 @@ func (p *UserPrivileges) RequestVerification(activeRoles []*auth.RoleIdentity, d
 	}
 
 	mysqlPriv := p.Handle.Get()
-	return mysqlPriv.RequestVerification(activeRoles, p.user, p.host, db, table, column, priv)
+	ret := mysqlPriv.RequestVerification(activeRoles, p.user, p.host, db, table, column, priv)
+	if !ret {
+		return ret
+	}
+	if dbLowerName == mysql.SystemDB && strings.ToLower(table) == "tidb_audit_log" && !validToAudit(p.user) {
+		return false
+	}
+	return ret
+}
+
+func validToAudit(user string) bool {
+	for _, u := range config.GetGlobalConfig().Security.AuditUsers {
+		if user == u {
+			return true
+		}
+	}
+	return false
 }
 
 // RequestVerificationWithUser implements the Manager interface.
