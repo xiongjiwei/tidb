@@ -918,8 +918,8 @@ func (s *testPlanSuite) TestVisitInfo(c *C) {
 				{mysql.SelectPriv, "test", "t", "g", nil},
 				{mysql.SelectPriv, "test", "t", "h", nil},
 				{mysql.SelectPriv, "test", "t", "i_date", nil},
-				{mysql.UpdatePriv, "test", "t", "", nil},
-				{mysql.SelectPriv, "test", "t", "a", nil},
+				{mysql.SelectPriv, "test", "t", "", nil},
+				{mysql.UpdatePriv, "test", "t", "a", nil},
 			},
 		},
 		{
@@ -932,7 +932,7 @@ func (s *testPlanSuite) TestVisitInfo(c *C) {
 		{
 			sql: "select a, sum(e) from t group by a",
 			ans: []visitInfo{
-				{mysql.SelectPriv, "test", "t", "e", nil},
+				// {mysql.SelectPriv, "test", "t", "e", nil},
 				{mysql.SelectPriv, "test", "t", "a", nil},
 			},
 		},
