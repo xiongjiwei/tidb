@@ -210,4 +210,7 @@ var (
 	ErrConstraintDoesNotExist = terror.ClassDDL.New(mysql.ErrConstraintDoesNotExist, mysql.MySQLErrName[mysql.ErrConstraintDoesNotExist])
 	// ErrCheckConstraintIsViolated is returned for violating an existent check constraint.
 	ErrCheckConstraintIsViolated = terror.ClassDDL.New(mysql.ErrCheckConstraintViolated, mysql.MySQLErrName[mysql.ErrCheckConstraintViolated])
+
+	// ErrPartitionMaxvalue returns multiple definition of same constant in list partitioning.
+	ErrMultipleDefConstInListPart = terror.ClassDDL.New(mysql.ErrMultipleDefConstInListPart, mysql.MySQLErrName[mysql.ErrMultipleDefConstInListPart])
 )
