@@ -102,7 +102,7 @@ func newPartitionExpr(tblInfo *model.TableInfo) (*PartitionExpr, error) {
 	case model.PartitionTypeHash:
 		return generateHashPartitionExpr(ctx, pi, columns, names)
 	case model.PartitionTypeList:
-		return generateRangePartitionExpr(ctx, pi, columns, names)
+		return generateListPartitionExpr(ctx, pi, columns, names)
 	}
 	panic("cannot reach here")
 }
@@ -115,6 +115,8 @@ type PartitionExpr struct {
 	OrigExpr ast.ExprNode
 	// Expr is the hash partition expression.
 	Expr expression.Expression
+	// InValues: x in (1,2); x in (3,4); x in (5,6), used for list partition.
+	InValues []expression.Expression
 }
 
 // rangePartitionString returns the partition string for a range typed partition.
@@ -179,6 +181,30 @@ func generateRangePartitionExpr(ctx sessionctx.Context, pi *model.PartitionInfo,
 	return &PartitionExpr{
 		UpperBounds: locateExprs,
 	}, nil
+}
+
+func generateListPartitionExpr(ctx sessionctx.Context, pi *model.PartitionInfo,
+	columns []*expression.Column, names types.NameSlice) (*PartitionExpr, error) {
+	// The caller should assure partition info is not nil.
+	locateExprs := make([]expression.Expression, 0, len(pi.Definitions))
+	var buf bytes.Buffer
+	schema := expression.NewSchema(columns...)
+	partStr := pi.Expr
+	for i := 0; i < len(pi.Definitions); i++ {
+		fmt.Fprintf(&buf, "((%s) in (%s))", partStr, strings.Join(pi.Definitions[i].Values, ","))
+		exprs, err := expression.ParseSimpleExprsWithNames(ctx, buf.String(), schema, names)
+		if err != nil {
+			// If it got an error here, ddl may hang forever, so this error log is important.
+			logutil.BgLogger().Error("wrong table partition expression", zap.String("expression", buf.String()), zap.Error(err))
+			return nil, errors.Trace(err)
+		}
+		locateExprs = append(locateExprs, exprs[0])
+		buf.Reset()
+	}
+	ret := &PartitionExpr{
+		InValues: locateExprs,
+	}
+	return ret, nil
 }
 
 func generateHashPartitionExpr(ctx sessionctx.Context, pi *model.PartitionInfo,
