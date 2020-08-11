@@ -191,9 +191,9 @@ func generateListPartitionExpr(ctx sessionctx.Context, pi *model.PartitionInfo,
 	schema := expression.NewSchema(columns...)
 	partStr := pi.Expr
 	for _, def := range pi.Definitions {
-		fmt.Fprintf(&buf, "((%s) in (%s))", partStr, strings.Join(def.Values, ","))
-		for _, value := range def.Values {
-			exprs, err := expression.ParseSimpleExprsWithNames(ctx, value, schema, names)
+		fmt.Fprintf(&buf, "((%s) in (%s))", partStr, strings.Join(def.InValues, ","))
+		for _, value := range def.InValues {
+			expr, err := parseSimpleExprWithNames(p, ctx, value, schema, names)
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
@@ -206,8 +206,7 @@ func generateListPartitionExpr(ctx sessionctx.Context, pi *model.PartitionInfo,
 			}
 		}
 
-		fmt.Printf("expr: %v ---\n", buf.String())
-		exprs, err := expression.ParseSimpleExprsWithNames(ctx, buf.String(), schema, names)
+		expr, err := parseSimpleExprWithNames(p, ctx, buf.String(), schema, names)
 		if err != nil {
 			// If it got an error here, ddl may hang forever, so this error log is important.
 			logutil.BgLogger().Error("wrong table partition expression", zap.String("expression", buf.String()), zap.Error(err))
