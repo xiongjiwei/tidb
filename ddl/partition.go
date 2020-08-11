@@ -69,6 +69,13 @@ func buildTablePartitionInfo(ctx sessionctx.Context, s *ast.CreateTableStmt) (*m
 		enable = true
 	}
 
+	if s.Partition.Tp == model.PartitionTypeList {
+		// TODO: support list columns partition
+		if len(s.Partition.ColumnNames) == 0 {
+			enable = true
+		}
+	}
+
 	if !enable {
 		ctx.GetSessionVars().StmtCtx.AppendWarning(errUnsupportedCreatePartition)
 		return nil, nil
@@ -104,6 +111,10 @@ func buildTablePartitionInfo(ctx sessionctx.Context, s *ast.CreateTableStmt) (*m
 		}
 	} else if s.Partition.Tp == model.PartitionTypeHash {
 		if err := buildHashPartitionDefinitions(ctx, s, pi); err != nil {
+			return nil, errors.Trace(err)
+		}
+	} else if s.Partition.Tp == model.PartitionTypeList {
+		if err := buildListPartitionDefinitions(s, pi); err != nil {
 			return nil, errors.Trace(err)
 		}
 	}
@@ -142,6 +153,32 @@ func buildRangePartitionDefinitions(ctx sessionctx.Context, s *ast.CreateTableSt
 		for _, expr := range def.Clause.(*ast.PartitionDefinitionClauseLessThan).Exprs {
 			expr.Format(buf)
 			piDef.LessThan = append(piDef.LessThan, buf.String())
+			buf.Reset()
+		}
+		pi.Definitions = append(pi.Definitions, piDef)
+	}
+	return nil
+}
+
+func buildListPartitionDefinitions(s *ast.CreateTableStmt, pi *model.PartitionInfo) (err error) {
+	for _, def := range s.Partition.Definitions {
+		comment, _ := def.Comment()
+		err = checkTooLongTable(def.Name)
+		if err != nil {
+			return err
+		}
+		piDef := model.PartitionDefinition{
+			Name:    def.Name,
+			Comment: comment,
+		}
+
+		buf := new(bytes.Buffer)
+		for _, vs := range def.Clause.(*ast.PartitionDefinitionClauseIn).Values {
+			if len(vs) != 1 {
+				return fmt.Errorf("not support muli-column list partition")
+			}
+			vs[0].Format(buf)
+			piDef.InValues = append(piDef.InValues, buf.String())
 			buf.Reset()
 		}
 		pi.Definitions = append(pi.Definitions, piDef)
@@ -435,7 +472,9 @@ func checkPartitionFuncType(ctx sessionctx.Context, s *ast.CreateTableStmt, tblI
 	buf := new(bytes.Buffer)
 	s.Partition.Expr.Format(buf)
 	exprStr := buf.String()
-	if s.Partition.Tp == model.PartitionTypeRange || s.Partition.Tp == model.PartitionTypeHash {
+	if s.Partition.Tp == model.PartitionTypeRange ||
+		s.Partition.Tp == model.PartitionTypeHash ||
+		s.Partition.Tp == model.PartitionTypeList {
 		// if partition by columnExpr, check the column type
 		if _, ok := s.Partition.Expr.(*ast.ColumnNameExpr); ok {
 			for _, col := range tblInfo.Columns {
@@ -508,6 +547,48 @@ func checkCreatePartitionValue(ctx sessionctx.Context, tblInfo *model.TableInfo)
 			}
 		}
 		prevRangeValue = currentRangeValue
+	}
+	return nil
+}
+
+func checkListPartitionValue(tblInfo *model.TableInfo) error {
+	pi := tblInfo.Partition
+	defs := pi.Definitions
+	if len(defs) == 0 {
+		return nil
+	}
+
+	cols := tblInfo.Columns
+	isUnsignedBigint := isRangePartitionColUnsignedBigint(cols, pi)
+	partitionsValuesMap := make(map[string]map[string]struct{})
+	checkMultipleValue := func(v string) error {
+		for _, otherValueMap := range partitionsValuesMap {
+			if _, ok := otherValueMap[v]; ok {
+				return errors.Trace(ErrMultipleDefConstInListPart)
+			}
+		}
+		return nil
+	}
+
+	for i, def := range pi.Definitions {
+		valuesMap := make(map[string]struct{}, len(def.InValues))
+		for j, v := range def.InValues {
+			if isUnsignedBigint {
+				if value, err := strconv.ParseUint(v, 10, 64); err == nil {
+					v = strconv.FormatUint(value, 10)
+				}
+			} else {
+				if value, err := strconv.ParseInt(v, 10, 64); err == nil {
+					v = strconv.FormatInt(value, 10)
+				}
+			}
+			if err := checkMultipleValue(v); err != nil {
+				return err
+			}
+			pi.Definitions[i].InValues[j] = v
+			valuesMap[v] = struct{}{}
+		}
+		partitionsValuesMap[def.Name.O] = valuesMap
 	}
 	return nil
 }

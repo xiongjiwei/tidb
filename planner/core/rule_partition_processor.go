@@ -157,7 +157,6 @@ func (s *partitionProcessor) prune(ds *DataSource) (LogicalPlan, error) {
 	if pi.Type == model.PartitionTypeRange {
 		return s.pruneRangePartition(ds, pi)
 	}
-
 	// We haven't implement partition by list and so on.
 	return s.makeUnionAllChildren(ds, pi, fullRange(len(pi.Definitions)))
 }
