@@ -178,7 +178,7 @@ func buildListPartitionDefinitions(s *ast.CreateTableStmt, pi *model.PartitionIn
 				return fmt.Errorf("not support muli-column list partition")
 			}
 			vs[0].Format(buf)
-			piDef.Values = append(piDef.Values, buf.String())
+			piDef.InValues = append(piDef.InValues, buf.String())
 			buf.Reset()
 		}
 		pi.Definitions = append(pi.Definitions, piDef)
