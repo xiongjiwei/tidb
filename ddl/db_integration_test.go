@@ -1464,7 +1464,7 @@ func (s *testIntegrationSuite) assertAlterErrorExec(c *C, sql string) {
 func (s *testIntegrationSuite3) TestAlterAlgorithm(c *C) {
 	s.tk = testkit.NewTestKit(c, s.store)
 	s.tk.MustExec("use test")
-	s.tk.MustExec("drop table if exists t, t1")
+	s.tk.MustExec("drop table if exists t, t1,tl")
 	defer s.tk.MustExec("drop table if exists t")
 
 	s.tk.MustExec(`create table t(
@@ -1477,6 +1477,11 @@ func (s *testIntegrationSuite3) TestAlterAlgorithm(c *C) {
 		PARTITION p2 VALUES LESS THAN (16),
 		PARTITION p3 VALUES LESS THAN (21)
 	)`)
+	s.tk.MustExec(`create table tl (id int) partition by list  (id) (
+		partition p0 values in (1,2),
+    	partition p1 values in (3,4),
+    	partition p3 values in (5,null));`)
+
 	s.assertAlterErrorExec(c, "alter table t modify column a bigint, ALGORITHM=INPLACE;")
 	s.tk.MustExec("alter table t modify column a bigint, ALGORITHM=INPLACE, ALGORITHM=INSTANT;")
 	s.tk.MustExec("alter table t modify column a bigint, ALGORITHM=DEFAULT;")
@@ -1510,6 +1515,10 @@ func (s *testIntegrationSuite3) TestAlterAlgorithm(c *C) {
 	s.assertAlterWarnExec(c, "alter table t add partition (partition p4 values less than (2002)), ALGORITHM=COPY")
 	s.assertAlterErrorExec(c, "alter table t add partition (partition p5 values less than (3002)), ALGORITHM=INPLACE")
 	s.tk.MustExec("alter table t add partition (partition p6 values less than (4002)), ALGORITHM=INSTANT")
+
+	s.assertAlterWarnExec(c, "alter table tl add partition (partition p4 values in (7)), ALGORITHM=COPY")
+	s.assertAlterErrorExec(c, "alter table tl add partition (partition p5 values in (8)), ALGORITHM=INPLACE")
+	s.tk.MustExec("alter table tl add partition (partition p6 values in (9)), ALGORITHM=INSTANT")
 
 	s.assertAlterWarnExec(c, "alter table t ALGORITHM=COPY, drop partition p4")
 	s.assertAlterErrorExec(c, "alter table t ALGORITHM=INPLACE, drop partition p5")
