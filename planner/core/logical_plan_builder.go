@@ -2633,6 +2633,9 @@ func (b *PlanBuilder) buildDataSource(ctx context.Context, tn *ast.TableName, as
 		if b.capFlag&collectUnderlyingViewName != 0 {
 			b.underlyingViewNames.Insert(dbName.L + "." + tn.Name.L)
 		}
+		if dbName.L == "mysql" && tn.Name.L == "tidb_audit_current_user" {
+			b.DataPrivSpecialView = true
+		}
 		return b.BuildDataSourceFromView(ctx, dbName, tableInfo)
 	}
 
@@ -2959,7 +2962,7 @@ func (b *PlanBuilder) BuildDataSourceFromView(ctx context.Context, dbName model.
 		return nil, err
 	}
 
-	if tableInfo.View.Security == model.SecurityDefiner {
+	if tableInfo.View.Security == model.SecurityDefiner && tableInfo.Name.L != "tidb_audit_current_user" {
 		if pm := privilege.GetPrivilegeManager(b.ctx); pm != nil {
 			for _, v := range b.visitInfo {
 				if !pm.RequestVerificationWithUser(v.db, v.table, v.column, v.privilege, tableInfo.View.Definer) {
