@@ -285,6 +285,7 @@ const (
 		name char(100) NOT NULL
 	);`
 
+	// CreateLoginBlackList stores the list of disabled login role.
 	CreateLoginBlackList = `CREATE TABLE IF NOT EXISTS mysql.login_blacklist (
 		HOST char(60) COLLATE utf8_bin NOT NULL DEFAULT '',
 		USER char(32) COLLATE utf8_bin NOT NULL DEFAULT '',
@@ -393,6 +394,8 @@ const (
 	version45 = 45
 	// version46 introduces mysql.login_blacklist to detect login fail.
 	version46 = 46
+	// version47 init a tidb_audit user.
+	version47 = 47
 )
 
 var (
@@ -442,6 +445,7 @@ var (
 		upgradeToVer44,
 		upgradeToVer45,
 		upgradeToVer46,
+		upgradeToVer47,
 	}
 )
 
@@ -1068,6 +1072,14 @@ func upgradeToVer46(s Session, ver int64) {
 	mustExecute(s, sql)
 }
 
+func upgradeToVer47(s Session, ver int64) {
+	if ver >= version47 {
+		return
+	}
+	mustExecute(s, `INSERT IGNORE INTO mysql.user VALUES
+		("%", "tidb_audit", "", "Y", "N", "N", "Y", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N")`)
+}
+
 // updateBootstrapVer updates bootstrap version variable in mysql.TiDB table.
 func updateBootstrapVer(s Session) {
 	// Update bootstrap version.
@@ -1142,6 +1154,9 @@ func doDMLWorks(s Session) {
 	// Insert a default user with empty password.
 	mustExecute(s, `INSERT HIGH_PRIORITY INTO mysql.user VALUES
 		("%", "root", "", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "Y", "N", "Y", "Y", "Y", "Y")`)
+
+	mustExecute(s, `INSERT HIGH_PRIORITY INTO mysql.user VALUES
+		("%", "tidb_audit", "", "Y", "N", "N", "Y", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N", "N")`)
 
 	// Init global system variables table.
 	values := make([]string, 0, len(variable.SysVars))

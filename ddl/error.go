@@ -202,4 +202,15 @@ var (
 	ErrColumnTypeUnsupportedNextValue = terror.ClassDDL.New(mysql.ErrColumnTypeUnsupportedNextValue, mysql.MySQLErrName[mysql.ErrColumnTypeUnsupportedNextValue])
 	// ErrUnsupportedExpressionIndex is returned when create an expression index without allow-expression-index.
 	ErrUnsupportedExpressionIndex = terror.ClassDDL.New(mysql.ErrUnsupportedDDLOperation, fmt.Sprintf(mysql.MySQLErrName[mysql.ErrUnsupportedDDLOperation], "creating expression index without allow-expression-index in config"))
+	// ErrColumnCheckConstraintReferOther is returned when create column check constraint referring other column.
+	ErrColumnCheckConstraintReferOther = terror.ClassDDL.New(mysql.ErrColumnCheckConstraintReferOther, mysql.MySQLErrName[mysql.ErrColumnCheckConstraintReferOther])
+	// ErrTableCheckConstraintReferUnknown is returned when create table check constraint referring non-existing column.
+	ErrTableCheckConstraintReferUnknown = terror.ClassDDL.New(mysql.ErrTableCheckConstraintReferUnknown, mysql.MySQLErrName[mysql.ErrTableCheckConstraintReferUnknown])
+	// ErrConstraintDoesNotExist is returned for dropping a non-existent constraint.
+	ErrConstraintDoesNotExist = terror.ClassDDL.New(mysql.ErrConstraintDoesNotExist, mysql.MySQLErrName[mysql.ErrConstraintDoesNotExist])
+	// ErrCheckConstraintIsViolated is returned for violating an existent check constraint.
+	ErrCheckConstraintIsViolated = terror.ClassDDL.New(mysql.ErrCheckConstraintViolated, mysql.MySQLErrName[mysql.ErrCheckConstraintViolated])
+
+	// ErrPartitionMaxvalue returns multiple definition of same constant in list partitioning.
+	ErrMultipleDefConstInListPart = terror.ClassDDL.New(mysql.ErrMultipleDefConstInListPart, mysql.MySQLErrName[mysql.ErrMultipleDefConstInListPart])
 )

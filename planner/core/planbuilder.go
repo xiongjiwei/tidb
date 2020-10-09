@@ -352,6 +352,7 @@ type PlanBuilder struct {
 	partitionedTable []table.PartitionedTable
 	// CreateView needs this information to check whether exists nested view.
 	underlyingViewNames set.StringSet
+	DataPrivSpecialView bool
 }
 
 type handleColHelper struct {

@@ -12,7 +12,7 @@ require (
 	github.com/dgraph-io/ristretto v0.0.1
 	github.com/dgryski/go-farm v0.0.0-20190423205320-6a90982ecee2
 	github.com/dustin/go-humanize v1.0.0 // indirect
-	github.com/go-sql-driver/mysql v1.4.1
+	github.com/go-sql-driver/mysql v1.5.0
 	github.com/gogo/protobuf v1.3.1
 	github.com/golang/groupcache v0.0.0-20190702054246-869f871628b6 // indirect
 	github.com/golang/protobuf v1.3.4
@@ -36,8 +36,8 @@ require (
 	github.com/pingcap/fn v0.0.0-20191016082858-07623b84a47d
 	github.com/pingcap/goleveldb v0.0.0-20191226122134-f82aafb29989
 	github.com/pingcap/kvproto v0.0.0-20200420075417-e0c6e8842f22
-	github.com/pingcap/log v0.0.0-20200117041106-d28c14d3b1cd
-	github.com/pingcap/parser v0.0.0-20200507022230-f3bf29096657
+	github.com/pingcap/log v0.0.0-20200511115504-543df19646ad
+	github.com/pingcap/parser v0.0.0-20200811093644-e2438712084b
 	github.com/pingcap/pd/v4 v4.0.0-rc.1.0.20200422143320-428acd53eba2
 	github.com/pingcap/sysutil v0.0.0-20200408114249-ed3bd6f7fdb1
 	github.com/pingcap/tidb-tools v4.0.0-beta.1.0.20200306084441-875bd09aa3d5+incompatible
@@ -57,22 +57,21 @@ require (
 	go.etcd.io/etcd v0.5.0-alpha.5.0.20191023171146-3cf2f69b5738
 	go.uber.org/atomic v1.6.0
 	go.uber.org/automaxprocs v1.2.0
-	go.uber.org/zap v1.14.1
+	go.uber.org/zap v1.15.0
 	golang.org/x/crypto v0.0.0-20191206172530-e9b2fee46413 // indirect
 	golang.org/x/lint v0.0.0-20200302205851-738671d3881b // indirect
 	golang.org/x/net v0.0.0-20200324143707-d3edc9973b7e
 	golang.org/x/sync v0.0.0-20190911185100-cd5d95a43a6e
 	golang.org/x/sys v0.0.0-20200323222414-85ca7c5b95cd
-	golang.org/x/text v0.3.2
+	golang.org/x/text v0.3.3
 	golang.org/x/time v0.0.0-20190308202827-9d24e82272b4 // indirect
 	golang.org/x/tools v0.0.0-20200325203130-f53864d0dba1
 	google.golang.org/grpc v1.25.1
 	gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0
+	honnef.co/go/tools v0.0.1-2020.1.4 // indirect
 	sourcegraph.com/sourcegraph/appdash v0.0.0-20180531100431-4c381bd170b4
 	sourcegraph.com/sourcegraph/appdash-data v0.0.0-20151005221446-73f23eafcf67
 )
 
 go 1.13
-
-replace github.com/pingcap/parser => github.com/bb7133/parser v0.0.0-20200509042029-4c8a0b68bbb3

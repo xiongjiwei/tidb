@@ -607,6 +607,18 @@ func columnDefToCol(ctx sessionctx.Context, offset int, colDef *ast.ColumnDef, o
 				}
 			case ast.ColumnOptionFulltext:
 				ctx.GetSessionVars().StmtCtx.AppendWarning(ErrTableCantHandleFt)
+			case ast.ColumnOptionCheck:
+				// Check the column CHECK constraint dependency lazily, after fill all the name.
+				// Extract column constraint from column option.
+				constraint := &ast.Constraint{
+					Tp:           ast.ConstraintCheck,
+					Expr:         v.Expr,
+					Enforced:     v.Enforced,
+					Name:         v.ConstraintName,
+					InColumn:     true,
+					InColumnName: colDef.Name.Name.O,
+				}
+				constraints = append(constraints, constraint)
 			}
 		}
 	}
@@ -1077,6 +1089,26 @@ func checkDuplicateConstraint(namesMap map[string]bool, name string, foreign boo
 	return nil
 }
 
+func setEmptyCheckConstraintName(tableLowerName string, namesMap map[string]bool, constrs []*ast.Constraint) {
+	cnt := 1
+	constraintPrefix := tableLowerName + "_chk_"
+	for _, constr := range constrs {
+		if constr.Name == "" {
+			constrName := fmt.Sprintf("%s%d", constraintPrefix, cnt)
+			for {
+				// loop until find constrName that haven't been used.
+				if !namesMap[constrName] {
+					namesMap[constrName] = true
+					break
+				}
+				cnt++
+				constrName = fmt.Sprintf("%s%d", constraintPrefix, cnt)
+			}
+			constr.Name = constrName
+		}
+	}
+}
+
 func setEmptyConstraintName(namesMap map[string]bool, constr *ast.Constraint, foreign bool) {
 	if constr.Name == "" && len(constr.Keys) > 0 {
 		colName := constr.Keys[0].Column.Name.L
@@ -1100,7 +1132,7 @@ func setEmptyConstraintName(namesMap map[string]bool, constr *ast.Constraint, fo
 	}
 }
 
-func checkConstraintNames(constraints []*ast.Constraint) error {
+func checkConstraintNames(tableName model.CIStr, constraints []*ast.Constraint) error {
 	constrNames := map[string]bool{}
 	fkNames := map[string]bool{}
 
@@ -1119,15 +1151,22 @@ func checkConstraintNames(constraints []*ast.Constraint) error {
 		}
 	}
 
+	checkConstraints := make([]*ast.Constraint, 0, len(constraints))
 	// Set empty constraint names.
 	for _, constr := range constraints {
+		if constr.Tp == ast.ConstraintCheck {
+			checkConstraints = append(checkConstraints, constr)
+		}
 		if constr.Tp == ast.ConstraintForeignKey {
 			setEmptyConstraintName(fkNames, constr, true)
 		} else {
 			setEmptyConstraintName(constrNames, constr, false)
 		}
 	}
-
+	// Set check constraint name under its order.
+	if len(checkConstraints) > 0 {
+		setEmptyCheckConstraintName(tableName.L, constrNames, checkConstraints)
+	}
 	return nil
 }
 
@@ -1263,9 +1302,12 @@ func buildTableInfo(
 		Charset: charset,
 		Collate: collate,
 	}
+	// existedColsMap is used to check existence of the depended column.
+	existedColsMap := make(map[string]struct{}, len(cols))
 	for _, v := range cols {
 		v.ID = allocateColumnID(tbInfo)
 		tbInfo.Columns = append(tbInfo.Columns, v.ToInfo())
+		existedColsMap[v.Name.L] = struct{}{}
 	}
 	for _, constr := range constraints {
 		if constr.Tp == ast.ConstraintForeignKey {
@@ -1309,6 +1351,45 @@ func buildTableInfo(
 			sc.AppendWarning(ErrTableCantHandleFt)
 			continue
 		}
+
+		if constr.Tp == ast.ConstraintCheck {
+			// Since column check constraint dependency has been done in colDefToCol.
+			// Here do the table check constraint dependency check, table constraint
+			// can only refer the columns in defined columns of the table.
+			// Refer: https://dev.mysql.com/doc/refman/8.0/en/create-table-check-constraints.html
+			var dependedCols []model.CIStr
+			if !constr.InColumn {
+				dependedColsMap := findDependedColsMapInExpr(constr.Expr)
+				dependedCols = make([]model.CIStr, 0, len(dependedColsMap))
+				for k := range dependedColsMap {
+					if _, ok := existedColsMap[k]; !ok {
+						// The table constraint depended on a non-existed column.
+						return nil, ErrTableCheckConstraintReferUnknown.GenWithStackByArgs(constr.Name, k)
+					}
+					dependedCols = append(dependedCols, model.NewCIStr(k))
+				}
+			} else {
+				// Check the column-type constraint dependency.
+				dependedColsMap := findDependedColsMapInExpr(constr.Expr)
+				if len(dependedColsMap) != 1 {
+					return nil, ErrColumnCheckConstraintReferOther.GenWithStackByArgs(constr.Name)
+				}
+				if _, ok := dependedColsMap[constr.InColumnName]; !ok {
+					return nil, ErrColumnCheckConstraintReferOther.GenWithStackByArgs(constr.Name)
+				}
+				dependedCols = []model.CIStr{model.NewCIStr(constr.InColumnName)}
+			}
+
+			// build constraint meta info.
+			constraintInfo, err := buildConstraintInfo(tbInfo, dependedCols, constr, model.StatePublic)
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
+			constraintInfo.ID = allocateConstraintID(tbInfo)
+			tbInfo.Constraints = append(tbInfo.Constraints, constraintInfo)
+			continue
+		}
+
 		// build index info.
 		idxInfo, err := buildIndexInfo(tbInfo, model.NewCIStr(constr.Name), constr.Keys, model.StatePublic)
 		if err != nil {
@@ -1402,6 +1483,8 @@ func checkTableInfoValidWithStmt(ctx sessionctx.Context, tbInfo *model.TableInfo
 				err = checkPartitionByRange(ctx, tbInfo, s)
 			case model.PartitionTypeHash:
 				err = checkPartitionByHash(ctx, tbInfo, s)
+			case model.PartitionTypeList:
+				err = checkPartitionByList(ctx, tbInfo, s)
 			}
 			if err != nil {
 				return errors.Trace(err)
@@ -1501,7 +1584,7 @@ func buildTableInfoWithStmt(ctx sessionctx.Context, s *ast.CreateTableStmt, dbCh
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	err = checkConstraintNames(newConstraints)
+	err = checkConstraintNames(s.Table.Name, newConstraints)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -1864,6 +1947,39 @@ func checkPartitionByRange(ctx sessionctx.Context, tbInfo *model.TableInfo, s *a
 	return checkRangeColumnsPartitionValue(ctx, tbInfo)
 }
 
+// checkPartitionByRange checks validity of a "BY RANGE" partition.
+func checkPartitionByList(ctx sessionctx.Context, tbInfo *model.TableInfo, s *ast.CreateTableStmt) error {
+	pi := tbInfo.Partition
+	if err := checkPartitionNameUnique(pi); err != nil {
+		return err
+	}
+
+	if err := checkAddPartitionTooManyPartitions(uint64(len(pi.Definitions))); err != nil {
+		return err
+	}
+
+	if len(pi.Definitions) == 0 {
+		return ast.ErrPartitionsMustBeDefined.GenWithStackByArgs("LIST")
+	}
+
+	if len(pi.Columns) != 0 {
+		return fmt.Errorf("not support list columns partition")
+	}
+	if err := checkListPartitionValue(tbInfo); err != nil {
+		return err
+	}
+
+	// s maybe nil when add partition.
+	if s == nil {
+		return nil
+	}
+
+	if err := checkPartitionFuncValid(ctx, tbInfo, s.Partition.Expr); err != nil {
+		return err
+	}
+	return checkPartitionFuncType(ctx, s, tbInfo)
+}
+
 func checkRangeColumnsPartitionType(tbInfo *model.TableInfo) error {
 	for _, col := range tbInfo.Partition.Columns {
 		colInfo := getColumnInfoByName(tbInfo, col.L)
@@ -2188,6 +2304,10 @@ func (d *ddl) AlterTable(ctx sessionctx.Context, ident ast.Ident, specs []*ast.A
 			err = d.DropIndex(ctx, ident, model.NewCIStr(spec.Name), spec.IfExists)
 		case ast.AlterTableDropPrimaryKey:
 			err = d.DropIndex(ctx, ident, model.NewCIStr(mysql.PrimaryKeyName), spec.IfExists)
+		case ast.AlterTableDropCheck:
+			err = d.DropCheckConstraint(ctx, ident, model.NewCIStr(spec.Constraint.Name))
+		case ast.AlterTableAlterCheck:
+			err = d.AlterCheckConstraint(ctx, ident, model.NewCIStr(spec.Constraint.Name), spec.Constraint.Enforced)
 		case ast.AlterTableRenameIndex:
 			err = d.RenameIndex(ctx, ident, spec)
 		case ast.AlterTableDropPartition:
@@ -2211,6 +2331,8 @@ func (d *ddl) AlterTable(ctx sessionctx.Context, ident ast.Ident, specs []*ast.A
 				err = d.CreatePrimaryKey(ctx, ident, model.NewCIStr(constr.Name), spec.Constraint.Keys, constr.Option)
 			case ast.ConstraintFulltext:
 				ctx.GetSessionVars().StmtCtx.AppendWarning(ErrTableCantHandleFt)
+			case ast.ConstraintCheck:
+				err = d.CreateCheckConstraint(ctx, ident, model.NewCIStr(constr.Name), spec.Constraint)
 			default:
 				// Nothing to do now.
 			}
@@ -2523,7 +2645,12 @@ func (d *ddl) AddTablePartitions(ctx sessionctx.Context, ident ast.Ident, spec *
 	tmp := *partInfo
 	tmp.Definitions = append(pi.Definitions, tmp.Definitions...)
 	meta.Partition = &tmp
-	err = checkPartitionByRange(ctx, meta, nil)
+	switch pi.Type {
+	case model.PartitionTypeRange:
+		err = checkPartitionByRange(ctx, meta, nil)
+	case model.PartitionTypeList:
+		err = checkPartitionByList(ctx, meta, nil)
+	}
 	meta.Partition = pi
 	if err != nil {
 		if ErrSameNamePartition.Equal(err) && spec.IfNotExists {
@@ -3775,6 +3902,126 @@ func getAnonymousIndex(t table.Table, colName model.CIStr) model.CIStr {
 	return indexName
 }
 
+func (d *ddl) CreateCheckConstraint(ctx sessionctx.Context, ti ast.Ident, constrName model.CIStr, constr *ast.Constraint) error {
+	schema, t, err := d.getSchemaAndTableByIdent(ctx, ti)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	if err = checkTooLongConstraint(constrName); err != nil {
+		return errors.Trace(err)
+	}
+
+	if constraintInfo := t.Meta().FindConstraintInfoByName(constrName.L); constraintInfo != nil {
+		return infoschema.ErrCheckConstraintDuplicate.GenWithStackByArgs(constrName.L)
+	}
+
+	// allocate the temporary constraint name for dependency-check-error-output below.
+	constrNames := map[string]bool{}
+	for _, constr := range t.Meta().Constraints {
+		constrNames[constr.Name.L] = true
+	}
+	setEmptyCheckConstraintName(t.Meta().Name.L, constrNames, []*ast.Constraint{constr})
+
+	// existedColsMap can be used to check the existence of depended.
+	existedColsMap := make(map[string]struct{})
+	cols := t.Cols()
+	for _, v := range cols {
+		existedColsMap[v.Name.L] = struct{}{}
+	}
+
+	dependedColsMap := findDependedColsMapInExpr(constr.Expr)
+	dependedCols := make([]model.CIStr, 0, len(dependedColsMap))
+	for k := range dependedColsMap {
+		if _, ok := existedColsMap[k]; !ok {
+			// The table constraint depended on a non-existed column.
+			return ErrTableCheckConstraintReferUnknown.GenWithStackByArgs(constr.Name, k)
+		}
+		dependedCols = append(dependedCols, model.NewCIStr(k))
+	}
+
+	// build constraint meta info.
+	tblInfo := t.Meta()
+	constraintInfo, err := buildConstraintInfo(tblInfo, dependedCols, constr, model.StateNone)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	job := &model.Job{
+		SchemaID:   schema.ID,
+		TableID:    t.Meta().ID,
+		SchemaName: schema.Name.L,
+		Type:       model.ActionAddCheckConstraint,
+		BinlogInfo: &model.HistoryInfo{},
+		Args:       []interface{}{constraintInfo},
+		Priority:   ctx.GetSessionVars().DDLReorgPriority,
+	}
+
+	err = d.doDDLJob(ctx, job)
+	err = d.callHookOnChanged(err)
+	return errors.Trace(err)
+}
+
+func (d *ddl) DropCheckConstraint(ctx sessionctx.Context, ti ast.Ident, constrName model.CIStr) error {
+	is := d.infoHandle.Get()
+	schema, ok := is.SchemaByName(ti.Schema)
+	if !ok {
+		return errors.Trace(infoschema.ErrDatabaseNotExists)
+	}
+	t, err := is.TableByName(ti.Schema, ti.Name)
+	if err != nil {
+		return errors.Trace(infoschema.ErrTableNotExists.GenWithStackByArgs(ti.Schema, ti.Name))
+	}
+
+	constraintInfo := t.Meta().FindConstraintInfoByName(constrName.L)
+	if constraintInfo == nil {
+		return ErrConstraintDoesNotExist.GenWithStackByArgs(constrName)
+	}
+
+	job := &model.Job{
+		SchemaID:   schema.ID,
+		TableID:    t.Meta().ID,
+		SchemaName: schema.Name.L,
+		Type:       model.ActionDropCheckConstraint,
+		BinlogInfo: &model.HistoryInfo{},
+		Args:       []interface{}{constrName},
+	}
+
+	err = d.doDDLJob(ctx, job)
+	err = d.callHookOnChanged(err)
+	return errors.Trace(err)
+}
+
+func (d *ddl) AlterCheckConstraint(ctx sessionctx.Context, ti ast.Ident, constrName model.CIStr, enforced bool) error {
+	is := d.infoHandle.Get()
+	schema, ok := is.SchemaByName(ti.Schema)
+	if !ok {
+		return errors.Trace(infoschema.ErrDatabaseNotExists)
+	}
+	t, err := is.TableByName(ti.Schema, ti.Name)
+	if err != nil {
+		return errors.Trace(infoschema.ErrTableNotExists.GenWithStackByArgs(ti.Schema, ti.Name))
+	}
+
+	constraintInfo := t.Meta().FindConstraintInfoByName(constrName.L)
+	if constraintInfo == nil {
+		return ErrConstraintDoesNotExist.GenWithStackByArgs(constrName)
+	}
+
+	job := &model.Job{
+		SchemaID:   schema.ID,
+		TableID:    t.Meta().ID,
+		SchemaName: schema.Name.L,
+		Type:       model.ActionAlterCheckConstraint,
+		BinlogInfo: &model.HistoryInfo{},
+		Args:       []interface{}{constrName, enforced},
+	}
+
+	err = d.doDDLJob(ctx, job)
+	err = d.callHookOnChanged(err)
+	return errors.Trace(err)
+}
+
 func (d *ddl) CreatePrimaryKey(ctx sessionctx.Context, ti ast.Ident, indexName model.CIStr,
 	indexPartSpecifications []*ast.IndexPartSpecification, indexOption *ast.IndexOption) error {
 	if !config.GetGlobalConfig().AlterPrimaryKey {
@@ -4248,11 +4495,12 @@ func validateCommentLength(vars *variable.SessionVars, indexName string, indexOp
 }
 
 func buildPartitionInfo(ctx sessionctx.Context, meta *model.TableInfo, d *ddl, spec *ast.AlterTableSpec) (*model.PartitionInfo, error) {
-	if meta.Partition.Type == model.PartitionTypeRange {
+	switch meta.Partition.Type {
+	case model.PartitionTypeRange, model.PartitionTypeList:
 		if len(spec.PartDefinitions) == 0 {
 			return nil, ast.ErrPartitionsMustBeDefined.GenWithStackByArgs(meta.Partition.Type)
 		}
-	} else {
+	default:
 		// we don't support ADD PARTITION for all other partition types yet.
 		return nil, errors.Trace(ErrUnsupportedAddPartition)
 	}
@@ -4272,30 +4520,55 @@ func buildPartitionInfo(ctx sessionctx.Context, meta *model.TableInfo, d *ddl, s
 		if err := def.Clause.Validate(part.Type, len(part.Columns)); err != nil {
 			return nil, errors.Trace(err)
 		}
-		// For RANGE partition only VALUES LESS THAN should be possible.
-		clause := def.Clause.(*ast.PartitionDefinitionClauseLessThan)
-		if len(part.Columns) > 0 {
-			if err := checkRangeColumnsTypeAndValuesMatch(ctx, meta, clause.Exprs); err != nil {
-				return nil, err
-			}
-		}
-
 		comment, _ := def.Comment()
 		piDef := model.PartitionDefinition{
 			Name:    def.Name,
 			ID:      genIDs[ith],
 			Comment: comment,
 		}
-
-		buf := new(bytes.Buffer)
-		for _, expr := range clause.Exprs {
-			expr.Format(buf)
-			piDef.LessThan = append(piDef.LessThan, buf.String())
-			buf.Reset()
+		if meta.Partition.Type == model.PartitionTypeRange {
+			err = buildRangePartitionInfo(ctx, meta, part, def, &piDef)
+		} else {
+			err = buildListPartitionInfo(ctx, meta, part, def, &piDef)
+		}
+		if err != nil {
+			return nil, err
 		}
 		part.Definitions = append(part.Definitions, piDef)
 	}
 	return part, nil
+}
+
+func buildRangePartitionInfo(ctx sessionctx.Context, meta *model.TableInfo, part *model.PartitionInfo, def *ast.PartitionDefinition, piDef *model.PartitionDefinition) error {
+	// For RANGE partition only VALUES LESS THAN should be possible.
+	clause := def.Clause.(*ast.PartitionDefinitionClauseLessThan)
+	if len(part.Columns) > 0 {
+		if err := checkRangeColumnsTypeAndValuesMatch(ctx, meta, clause.Exprs); err != nil {
+			return err
+		}
+	}
+	buf := new(bytes.Buffer)
+	for _, expr := range clause.Exprs {
+		expr.Format(buf)
+		piDef.LessThan = append(piDef.LessThan, buf.String())
+		buf.Reset()
+	}
+	return nil
+}
+
+func buildListPartitionInfo(ctx sessionctx.Context, meta *model.TableInfo, part *model.PartitionInfo, def *ast.PartitionDefinition, piDef *model.PartitionDefinition) error {
+	// For List partition only VALUES IN should be possible.
+	clause := def.Clause.(*ast.PartitionDefinitionClauseIn)
+	buf := new(bytes.Buffer)
+	for _, vs := range clause.Values {
+		if len(vs) != 1 {
+			return fmt.Errorf("not support muli-column list partition")
+		}
+		vs[0].Format(buf)
+		piDef.InValues = append(piDef.InValues, buf.String())
+		buf.Reset()
+	}
+	return nil
 }
 
 func checkRangeColumnsTypeAndValuesMatch(ctx sessionctx.Context, meta *model.TableInfo, exprs []ast.ExprNode) error {

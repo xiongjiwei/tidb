@@ -20,6 +20,7 @@ import (
 
 	. "github.com/pingcap/check"
 	"github.com/pingcap/errors"
+	"github.com/pingcap/failpoint"
 	"github.com/pingcap/parser/ast"
 	"github.com/pingcap/parser/charset"
 	"github.com/pingcap/parser/model"
@@ -341,6 +342,24 @@ func testCheckJobCancelled(c *C, d *ddl, job *model.Job, state *model.SchemaStat
 	})
 }
 
+func doDDLJobErrWithJobState(ctx sessionctx.Context, d *ddl, c *C, schemaID, tableID int64, tp model.ActionType, jobState model.SchemaState,
+	args []interface{}, state *model.SchemaState) *model.Job {
+	job := &model.Job{
+		SchemaID:    schemaID,
+		TableID:     tableID,
+		Type:        tp,
+		SchemaState: jobState,
+		Args:        args,
+		BinlogInfo:  &model.HistoryInfo{},
+	}
+	err := d.doDDLJob(ctx, job)
+	// TODO: Add the detail error check.
+	c.Assert(err, NotNil, Commentf("err:%v", err))
+	testCheckJobCancelled(c, d, job, state)
+
+	return job
+}
+
 func doDDLJobErrWithSchemaState(ctx sessionctx.Context, d *ddl, c *C, schemaID, tableID int64, tp model.ActionType,
 	args []interface{}, state *model.SchemaState) *model.Job {
 	job := &model.Job{
@@ -455,7 +474,17 @@ func buildCancelJobTests(firstID int64) []testCancelJob {
 		{act: model.ActionRenameDatabase, jobIDs: []int64{firstID + 38}, cancelRetErrs: noErrs, cancelState: model.StateNone},
 
 		{act: model.ActionAlterIndexVisibility, jobIDs: []int64{firstID + 40}, cancelRetErrs: noErrs, cancelState: model.StateNone},
-		{act: model.ActionAlterIndexVisibility, jobIDs: []int64{firstID + 41}, cancelRetErrs: []error{admin.ErrCancelFinishedDDLJob.GenWithStackByArgs(firstID + 47)}, cancelState: model.StatePublic},
+		{act: model.ActionAlterIndexVisibility, jobIDs: []int64{firstID + 41}, cancelRetErrs: []error{admin.ErrCancelFinishedDDLJob.GenWithStackByArgs(firstID + 41)}, cancelState: model.StatePublic},
+
+		{act: model.ActionAddCheckConstraint, jobIDs: []int64{firstID + 42}, cancelRetErrs: noErrs, cancelState: model.StateNone},
+		{act: model.ActionAddCheckConstraint, jobIDs: []int64{firstID + 43}, cancelRetErrs: noErrs, cancelState: model.StateWriteOnly},
+		{act: model.ActionAddCheckConstraint, jobIDs: []int64{firstID + 44}, cancelRetErrs: []error{admin.ErrCancelFinishedDDLJob.GenWithStackByArgs(firstID + 44)}, cancelState: model.StatePublic},
+		{act: model.ActionAlterCheckConstraint, jobIDs: []int64{firstID + 45}, cancelRetErrs: noErrs, cancelState: model.StateNone},
+		{act: model.ActionAlterCheckConstraint, jobIDs: []int64{firstID + 46}, cancelRetErrs: []error{admin.ErrCancelFinishedDDLJob.GenWithStackByArgs(firstID + 46)}, cancelState: model.StatePublic},
+		// Cause the new created job always with the default stateNone even in drop-action ddl job, so here should test cancel a job in stateNone.
+		// {act: model.ActionDropCheckConstraint, jobIDs: []int64{firstID + 47}, cancelRetErrs: noErrs, cancelState: model.StatePublic},
+		{act: model.ActionDropCheckConstraint, jobIDs: []int64{firstID + 47}, cancelRetErrs: noErrs, cancelState: model.StateNone},
+		{act: model.ActionDropCheckConstraint, jobIDs: []int64{firstID + 48}, cancelRetErrs: []error{admin.ErrCannotCancelDDLJob.GenWithStackByArgs(firstID + 48)}, cancelState: model.StateWriteOnly},
 	}
 
 	return tests
@@ -467,6 +496,43 @@ func (s *testDDLSuite) checkDropIdx(c *C, d *ddl, schemaID int64, tableID int64,
 
 func (s *testDDLSuite) checkAddIdx(c *C, d *ddl, schemaID int64, tableID int64, idxName string, success bool) {
 	checkIdxExist(c, d, schemaID, tableID, idxName, success)
+}
+
+func (s *testDDLSuite) checkAddConstraint(c *C, d *ddl, schemaID int64, tableID int64, constrName string, success bool) {
+	checkConstraintExist(c, d, schemaID, tableID, constrName, success)
+}
+
+func (s *testDDLSuite) checkAlterConstraint(c *C, d *ddl, schemaID int64, tableID int64, constrName string, expectedEnforced bool) {
+	checkAlterConstraint(c, d, schemaID, tableID, constrName, expectedEnforced)
+}
+
+func (s *testDDLSuite) checkDropConstraint(c *C, d *ddl, schemaID int64, tableID int64, constrName string, success bool) {
+	checkConstraintExist(c, d, schemaID, tableID, constrName, success)
+}
+
+func checkAlterConstraint(c *C, d *ddl, schemaID int64, tableID int64, constrName string, expectedEnforced bool) {
+	changedTable := testGetTable(c, d, schemaID, tableID)
+	var found bool
+	for _, constrInfo := range changedTable.Meta().Constraints {
+		if constrInfo.Name.O == constrName {
+			found = true
+			c.Assert(constrInfo.Enforced, Equals, expectedEnforced)
+			break
+		}
+	}
+	c.Assert(found, Equals, true)
+}
+
+func checkConstraintExist(c *C, d *ddl, schemaID int64, tableID int64, constrName string, expectedExist bool) {
+	changedTable := testGetTable(c, d, schemaID, tableID)
+	var found bool
+	for _, constrInfo := range changedTable.Meta().Constraints {
+		if constrInfo.Name.O == constrName {
+			found = true
+			break
+		}
+	}
+	c.Assert(found, Equals, expectedExist)
 }
 
 func checkIdxExist(c *C, d *ddl, schemaID int64, tableID int64, idxName string, expectedExist bool) {
@@ -896,6 +962,67 @@ func (s *testDDLSuite) TestCancelJob1(c *C) {
 	c.Check(checkErr, IsNil)
 	changedTable = testGetTable(c, d, dbInfo.ID, tblInfo.ID)
 	c.Assert(checkIdxVisibility(changedTable, indexName, true), IsTrue)
+
+	cancelState = model.StateNone
+	// cancel alter table add constraint on stateNone.
+	updateTest(&tests[37])
+	constrName := "cc"
+	constraintInfo := buildTestConstraintInfo(constrName, false, tblInfo)
+	alterAddConstraint := []interface{}{constraintInfo}
+	doDDLJobErrWithSchemaState(ctx, d, c, dbInfo.ID, tblInfo.ID, test.act, alterAddConstraint, &cancelState)
+	c.Check(errors.ErrorStack(checkErr), Equals, "")
+	s.checkAddConstraint(c, d, dbInfo.ID, tblInfo.ID, constrName, false)
+
+	// cancel alter table add constraint stateWriteOnly.
+	updateTest(&tests[38])
+	constraintInfo = buildTestConstraintInfo(constrName, false, tblInfo)
+	alterAddConstraint = []interface{}{constraintInfo}
+	doDDLJobErrWithSchemaState(ctx, d, c, dbInfo.ID, tblInfo.ID, test.act, alterAddConstraint, &cancelState)
+	c.Check(errors.ErrorStack(checkErr), Equals, "")
+	s.checkAddConstraint(c, d, dbInfo.ID, tblInfo.ID, constrName, false)
+
+	// cancel alter table add constraint statePublic.
+	updateTest(&tests[39])
+	// Add constraint will need ddl.sessPool to exec internal SQL, test-ddl without sessPool will panic here.
+	// So use failpoint here to skip check avoiding using ddl.sessionPool.
+	constraintInfo = buildTestConstraintInfo(constrName, false, tblInfo)
+	alterAddConstraint = []interface{}{constraintInfo}
+	c.Assert(failpoint.Enable("github.com/pingcap/tidb/ddl/mockPassAddConstraintCheck", `return(true)`), IsNil)
+	doDDLJobSuccess(ctx, d, c, dbInfo.ID, tblInfo.ID, test.act, alterAddConstraint)
+	c.Assert(failpoint.Disable("github.com/pingcap/tidb/ddl/mockPassAddConstraintCheck"), IsNil)
+	c.Check(errors.ErrorStack(checkErr), Equals, "")
+	s.checkAddConstraint(c, d, dbInfo.ID, tblInfo.ID, constrName, true)
+
+	updateTest(&tests[40])
+	alterAlterConstraint := []interface{}{model.NewCIStr(constrName), true}
+	doDDLJobErrWithSchemaState(ctx, d, c, dbInfo.ID, tblInfo.ID, test.act, alterAlterConstraint, &cancelState)
+	c.Check(errors.ErrorStack(checkErr), Equals, "")
+	// Be cancelled, so the constraint info still the old one.
+	s.checkAlterConstraint(c, d, dbInfo.ID, tblInfo.ID, constrName, false)
+
+	updateTest(&tests[41])
+	alterAlterConstraint = []interface{}{model.NewCIStr(constrName), true}
+	// Alter constraint will need ddl.sessPool to exec internal SQL, test-ddl without sessPool will panic here.
+	// So use failpoint here to skip check avoiding using ddl.sessionPool.
+	c.Assert(failpoint.Enable("github.com/pingcap/tidb/ddl/mockPassAlterConstraintCheck", `return(true)`), IsNil)
+	doDDLJobSuccess(ctx, d, c, dbInfo.ID, tblInfo.ID, test.act, alterAlterConstraint)
+	c.Assert(failpoint.Disable("github.com/pingcap/tidb/ddl/mockPassAlterConstraintCheck"), IsNil)
+	c.Check(errors.ErrorStack(checkErr), Equals, "")
+	s.checkAlterConstraint(c, d, dbInfo.ID, tblInfo.ID, constrName, true)
+
+	updateTest(&tests[42])
+	alterDropConstraint := []interface{}{model.NewCIStr(constrName)}
+	doDDLJobErrWithSchemaState(ctx, d, c, dbInfo.ID, tblInfo.ID, test.act, alterDropConstraint, &cancelState)
+	c.Check(errors.ErrorStack(checkErr), Equals, "")
+	// Write only state in drop constraint can't be cancelled.
+	s.checkDropConstraint(c, d, dbInfo.ID, tblInfo.ID, constrName, true)
+
+	updateTest(&tests[43])
+	alterDropConstraint = []interface{}{model.NewCIStr(constrName)}
+	doDDLJobSuccess(ctx, d, c, dbInfo.ID, tblInfo.ID, test.act, alterDropConstraint)
+	c.Check(errors.ErrorStack(checkErr), Equals, "")
+	// Write only state in drop constraint can't be cancelled.
+	s.checkDropConstraint(c, d, dbInfo.ID, tblInfo.ID, constrName, false)
 }
 
 func (s *testDDLSuite) TestIgnorableSpec(c *C) {
@@ -1218,4 +1345,16 @@ func (s *testDDLSuite) TestDDLPackageExecuteSQL(c *C) {
 	defer worker.sessPool.put(sess)
 	se := sess.(sqlexec.SQLExecutor)
 	_, _ = se.Execute(context.Background(), "create table t(a int);")
+}
+
+func buildTestConstraintInfo(cname string, enforced bool, tbl *model.TableInfo) *model.ConstraintInfo {
+	return &model.ConstraintInfo{
+		Name:           model.NewCIStr(cname),
+		Table:          tbl.Name,
+		ConstraintCols: []model.CIStr{model.NewCIStr("c1")},
+		ExprString:     "`c1` > 0",
+		Enforced:       enforced,
+		InColumn:       true,
+		State:          model.StateNone,
+	}
 }

@@ -859,6 +859,12 @@ func (b *PlanBuilder) buildProjectionField(ctx context.Context, p LogicalPlan, f
 			name = p.OutputNames()[idx]
 		}
 		colName, origColName, tblName, origTblName, dbName = b.buildProjectionFieldNameFromColumns(field, colNameField, name)
+
+		var authErr error
+		if user := b.ctx.GetSessionVars().User; user != nil {
+			authErr = ErrTableaccessDenied.FastGenByArgs("SELECT", user.AuthUsername, user.AuthHostname, origTblName.L, origColName.L)
+		}
+		b.visitInfo = appendVisitInfo(b.visitInfo, mysql.SelectPriv, dbName.L, origTblName.L, origColName.L, authErr)
 	} else if field.AsName.L != "" {
 		// Field has alias.
 		colName = field.AsName
@@ -2618,11 +2624,6 @@ func (b *PlanBuilder) buildDataSource(ctx context.Context, tn *ast.TableName, as
 	}
 
 	tableInfo := tbl.Meta()
-	var authErr error
-	if sessionVars.User != nil {
-		authErr = ErrTableaccessDenied.FastGenByArgs("SELECT", sessionVars.User.Username, sessionVars.User.Hostname, tableInfo.Name.L)
-	}
-	b.visitInfo = appendVisitInfo(b.visitInfo, mysql.SelectPriv, dbName.L, tableInfo.Name.L, "", authErr)
 
 	if tbl.Type().IsVirtualTable() {
 		return b.buildMemTable(ctx, dbName, tableInfo)
@@ -2631,6 +2632,9 @@ func (b *PlanBuilder) buildDataSource(ctx context.Context, tn *ast.TableName, as
 	if tableInfo.IsView() {
 		if b.capFlag&collectUnderlyingViewName != 0 {
 			b.underlyingViewNames.Insert(dbName.L + "." + tn.Name.L)
+		}
+		if dbName.L == "mysql" && tn.Name.L == "tidb_audit_current_user" {
+			b.DataPrivSpecialView = true
 		}
 		return b.BuildDataSourceFromView(ctx, dbName, tableInfo)
 	}
@@ -2958,7 +2962,7 @@ func (b *PlanBuilder) BuildDataSourceFromView(ctx context.Context, dbName model.
 		return nil, err
 	}
 
-	if tableInfo.View.Security == model.SecurityDefiner {
+	if tableInfo.View.Security == model.SecurityDefiner && tableInfo.Name.L != "tidb_audit_current_user" {
 		if pm := privilege.GetPrivilegeManager(b.ctx); pm != nil {
 			for _, v := range b.visitInfo {
 				if !pm.RequestVerificationWithUser(v.db, v.table, v.column, v.privilege, tableInfo.View.Definer) {
@@ -3491,7 +3495,7 @@ func (b *PlanBuilder) buildUpdateLists(
 		if dbName == "" {
 			dbName = b.ctx.GetSessionVars().CurrentDB
 		}
-		b.visitInfo = appendVisitInfo(b.visitInfo, mysql.UpdatePriv, dbName, name.OrigTblName.L, "", nil)
+		b.visitInfo = appendVisitInfo(b.visitInfo, mysql.UpdatePriv, dbName, name.OrigTblName.L, name.ColName.L, nil)
 	}
 	return newList, p, allAssignmentsAreConstant, nil
 }

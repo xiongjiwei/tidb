@@ -3189,3 +3189,27 @@ func (s *testSchemaSuite) TestTxnSize(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(txn.Size() > 0, IsTrue)
 }
+
+func (s *testSessionSuite2) TestColumnPrivilege(c *C) {
+	tk := testkit.NewTestKitWithInit(c, s.store)
+	tk.MustExec("use test")
+	tk.MustExec("drop table if exists column_table")
+	tk.MustExec("create table column_table (a int, b int, c int)")
+	tk.MustExec("create user 'column'")
+	// Grant select privilege on column.
+	tk.MustExec("grant select(b) on column_table to 'column'@'%'")
+	tk1 := testkit.NewTestKitWithInit(c, s.store)
+	c.Assert(tk1.Se.Auth(&auth.UserIdentity{Username: "column", Hostname: "localhost"}, nil, nil), IsTrue)
+	tk1.MustQuery("select b from column_table")
+	err := tk1.ExecToErr("select * from column_table")
+	c.Assert(err, NotNil)
+	err = tk1.ExecToErr("select a from column_table")
+	c.Assert(err, NotNil)
+
+	// Grant update privilege on column.
+	tk.MustExec("grant select, update(b) on column_table to 'column'@'%'")
+	tk1.MustQuery("select * from column_table")
+	tk1.MustExec("update column_table set b = b + 1")
+	err = tk1.ExecToErr("update column_table set a = a + 1")
+	c.Assert(err, NotNil)
+}

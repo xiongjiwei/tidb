@@ -169,6 +169,7 @@ func (s *serialTestStateChangeSuite) TestShowCreateTable(c *C) {
 func (s *testStateChangeSuite) TestDropNotNullColumn(c *C) {
 	tk := testkit.NewTestKit(c, s.store)
 	tk.MustExec("use test")
+	tk.MustExec("drop table if exists t")
 	tk.MustExec("create table t (id int, a int not null default 11)")
 	tk.MustExec("insert into t values(1, 1)")
 	tk.MustExec("create table t1 (id int, b varchar(255) not null)")
@@ -218,6 +219,48 @@ func (s *testStateChangeSuite) TestDropNotNullColumn(c *C) {
 	c.Assert(checkErr, IsNil)
 	d.(ddl.DDLForTest).SetHook(originalCallback)
 	tk.MustExec("drop table t, t1, t2, t3")
+}
+
+func (s *testStateChangeSuite) TestAlterConstraintAddDrop(c *C) {
+	tk := testkit.NewTestKit(c, s.store)
+	tk.MustExec("use test")
+	tk.MustExec("drop table if exists t")
+	tk.MustExec("create table t (a int check(a>1), b int, constraint a_b check(a<b))")
+
+	tk1 := testkit.NewTestKit(c, s.store)
+	tk1.MustExec("use test")
+	_, err := tk1.Exec("insert into t (a, b) values(2, 3)")
+	c.Assert(err, IsNil)
+	_, err = tk1.Exec("insert into t (a, b) values(3, 4)")
+	c.Assert(err, IsNil)
+	_, err = tk1.Exec("insert into t (a, b) values(4, 3)")
+	c.Assert(err, NotNil)
+
+	var checkErr error
+	d := s.dom.DDL()
+	originalCallback := d.GetHook()
+	callback := &ddl.TestDDLCallback{}
+	callback.OnJobUpdatedExported = func(job *model.Job) {
+		if checkErr != nil {
+			return
+		}
+		originalCallback.OnChanged(nil)
+		if job.SchemaState == model.StateWriteOnly {
+			// StateNone -> StateWriteOnly -> StatePublic
+			// Node in StateWriteOnly and StatePublic should check the constraint check.
+			_, checkErr = tk1.Exec("insert into t (a, b) values(5,6) ")
+			// Don't do the assert in the callback function.
+		}
+	}
+	d.(ddl.DDLForTest).SetHook(callback)
+	tk.MustExec("alter table t add constraint cc check ( b < 5 )")
+	c.Assert(checkErr, NotNil)
+	c.Assert(checkErr.Error(), Equals, "[table:3819]Check constraint 'cc' is violated.")
+
+	tk.MustExec("alter table t drop constraint cc")
+	c.Assert(checkErr, NotNil)
+	c.Assert(checkErr.Error(), Equals, "[table:3819]Check constraint 'cc' is violated.")
+	tk.MustExec("drop table if exists t")
 }
 
 func (s *testStateChangeSuite) TestTwoStates(c *C) {

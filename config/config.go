@@ -272,6 +272,7 @@ type Security struct {
 	ClusterSSLCert         string   `toml:"cluster-ssl-cert" json:"cluster-ssl-cert"`
 	ClusterSSLKey          string   `toml:"cluster-ssl-key" json:"cluster-ssl-key"`
 	ClusterVerifyCN        []string `toml:"cluster-verify-cn" json:"cluster-verify-cn"`
+	AuditUsers             []string `toml:"audit-users" json:"audit-users"`
 }
 
 // The ErrConfigValidationFailed error is used so that external callers can do a type assertion
@@ -659,6 +660,9 @@ var defaultConf = Config{
 	Experimental: Experimental{
 		AllowAutoRandom:       false,
 		AllowsExpressionIndex: false,
+	},
+	Security: Security{
+		AuditUsers: []string{"tidb_audit"},
 	},
 }
 

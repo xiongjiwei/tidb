@@ -157,7 +157,7 @@ func optimize(ctx context.Context, sctx sessionctx.Context, node ast.Node, is in
 	// Check privilege. Maybe it's better to move this to the Preprocess, but
 	// we need the table information to check privilege, which is collected
 	// into the visitInfo in the logical plan builder.
-	if pm := privilege.GetPrivilegeManager(sctx); pm != nil {
+	if pm := privilege.GetPrivilegeManager(sctx); pm != nil && (!builder.DataPrivSpecialView || len(sctx.GetSessionVars().StmtCtx.Tables) > 1) {
 		if err := plannercore.CheckPrivilege(activeRoles, pm, builder.GetVisitInfo()); err != nil {
 			return nil, nil, 0, err
 		}

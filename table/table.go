@@ -102,6 +102,8 @@ var (
 	ErrLockOrActiveTransaction = terror.ClassTable.New(mysql.ErrLockOrActiveTransaction, mysql.MySQLErrName[mysql.ErrLockOrActiveTransaction])
 	// ErrSequenceHasRunOut returns when sequence has run out.
 	ErrSequenceHasRunOut = terror.ClassTable.New(mysql.ErrSequenceRunOut, mysql.MySQLErrName[mysql.ErrSequenceRunOut])
+	// ErrCheckConstraintViolated return when check constraint is violated.
+	ErrCheckConstraintViolated = terror.ClassTable.New(mysql.ErrCheckConstraintViolated, mysql.MySQLErrName[mysql.ErrCheckConstraintViolated])
 )
 
 // RecordIterFunc is used for low-level record iteration.

@@ -14,6 +14,7 @@
 package privileges
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -264,6 +265,7 @@ func (p *MySQLPrivilege) FindAllRole(activeRoles []*auth.RoleIdentity) []*auth.R
 	return ret
 }
 
+// IncLoginFail ...
 func (p *MySQLPrivilege) IncLoginFail(user, host string) int {
 	key := user + "@" + host
 	cnt, exist := p.PwdErrorCnt[key]
@@ -275,6 +277,7 @@ func (p *MySQLPrivilege) IncLoginFail(user, host string) int {
 	return 1
 }
 
+// ClearLoginFail ...
 func (p *MySQLPrivilege) ClearLoginFail(user, host string) {
 	key := user + "@" + host
 	if p.PwdErrorCnt == nil {
@@ -283,6 +286,7 @@ func (p *MySQLPrivilege) ClearLoginFail(user, host string) {
 	p.PwdErrorCnt[key] = 0
 }
 
+// LockAccount ...
 func (p *MySQLPrivilege) LockAccount(user, host string, sctx sessionctx.Context) error {
 	lock := types.CurrentTime(0)
 	ctx := context.Background()
@@ -291,13 +295,14 @@ func (p *MySQLPrivilege) LockAccount(user, host string, sctx sessionctx.Context)
 	return err
 }
 
+// CheckAccountLock ...
 func (p *MySQLPrivilege) CheckAccountLock(user, host string, sctx sessionctx.Context, limit time.Duration) bool {
 	recs, exist := p.BlackList[user]
 	if exist {
 		for _, r := range recs {
 			if r.Host == host {
 				t := r.startTime
-				if time.Now().Sub(t) > limit*time.Second {
+				if time.Since(t) > limit*time.Second {
 					ctx := context.Background()
 					sql := fmt.Sprintf("delete from mysql.login_blacklist where user = '%s' and host = '%s'", user, host)
 					_, err := sctx.(sqlexec.SQLExecutor).Execute(ctx, sql)
@@ -305,15 +310,15 @@ func (p *MySQLPrivilege) CheckAccountLock(user, host string, sctx sessionctx.Con
 						// ignore
 					}
 					return false
-				} else {
-					return true
 				}
+				return true
 			}
 		}
 	}
 	return false
 }
 
+// LoadBlackList ...
 func (p *MySQLPrivilege) LoadBlackList(ctx sessionctx.Context) error {
 	p.BlackList = make(map[string][]blackListItem)
 	err := p.loadTable(ctx, "select HOST, USER, lock_time from mysql.login_blacklist;", p.decodeBlackListRow)
@@ -1249,6 +1254,21 @@ func (p *MySQLPrivilege) showGrants(user, host string, roles []*auth.RoleIdentit
 		}
 	}
 
+	// Show column scope grants, column and table are combined.
+	// A map of "DB.Table" => Priv(col1, col2 ...)
+	columnPrivTable := make(map[string]privOnColumns)
+	for _, record := range p.ColumnsPriv {
+		collectColumnGrant(&record, user, host, columnPrivTable)
+		for _, r := range allRoles {
+			collectColumnGrant(&record, r.Username, r.Hostname, columnPrivTable)
+		}
+	}
+	for k, v := range columnPrivTable {
+		privCols := privOnColumnsToString(v)
+		s := fmt.Sprintf(`GRANT %s ON %s TO '%s'@'%s'`, privCols, k, user, host)
+		gs = append(gs, s)
+	}
+
 	// Show role grants.
 	graphKey := user + "@" + host
 	edgeTable, ok := p.RoleGraph[graphKey]
@@ -1272,6 +1292,53 @@ func (p *MySQLPrivilege) showGrants(user, host string, roles []*auth.RoleIdentit
 		gs = append(gs, s)
 	}
 	return gs
+}
+
+type columnStr = string
+type columnStrs = []columnStr
+type privOnColumns = map[mysql.PrivilegeType]columnStrs
+
+func privOnColumnsToString(p privOnColumns) string {
+	var buf bytes.Buffer
+	idx := 0
+	for _, priv := range mysql.AllColumnPrivs {
+		v, ok := p[priv]
+		if !ok || len(v) == 0 {
+			continue
+		}
+
+		if idx > 0 {
+			buf.WriteString(", ")
+		}
+		fmt.Fprintf(&buf, "%s(", mysql.Priv2Str[priv])
+		for i, col := range v {
+			if i > 0 {
+				fmt.Fprintf(&buf, ", ")
+			}
+			buf.WriteString(col)
+		}
+		buf.WriteString(")")
+		idx++
+	}
+	return buf.String()
+}
+
+func collectColumnGrant(record *columnsPrivRecord, user, host string, columnPrivTable map[string]privOnColumns) {
+	if record.baseRecord.match(user, host) {
+		recordKey := record.DB + "." + record.TableName
+		privColumns, ok := columnPrivTable[recordKey]
+		if !ok {
+			privColumns = make(map[mysql.PrivilegeType]columnStrs)
+		}
+
+		for _, priv := range mysql.AllColumnPrivs {
+			if priv&record.ColumnPriv > 0 {
+				old := privColumns[priv]
+				privColumns[priv] = append(old, record.ColumnName)
+				columnPrivTable[recordKey] = privColumns
+			}
+		}
+	}
 }
 
 func userPrivToString(privs mysql.PrivilegeType) string {

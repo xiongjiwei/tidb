@@ -697,9 +697,11 @@ func (e *memtableRetriever) setDataFromPartitions(ctx sessionctx.Context, schema
 						avgRowLength = dataLength / rowCount
 					}
 
-					var partitionDesc string
+					var partitionDesc interface{}
 					if table.Partition.Type == model.PartitionTypeRange {
 						partitionDesc = pi.LessThan[0]
+					} else if table.Partition.Type == model.PartitionTypeList {
+						partitionDesc = strings.Join(pi.InValues, ",")
 					}
 
 					record := types.MakeDatums(
