@@ -104,6 +104,9 @@ func RewriteNewCollationIDIfNeeded(id int32) int32 {
 		if id < 0 {
 			logutil.BgLogger().Warn("Unexpected negative collation ID for rewrite.", zap.Int32("ID", id))
 		} else {
+			if id == 87 || id == 249 {
+				return -63
+			}
 			return -id
 		}
 	}
@@ -232,4 +235,8 @@ func init() {
 	newCollatorIDMap[int(mysql.CollationNames["utf8mb4_general_ci"])] = &generalCICollator{}
 	newCollatorMap["utf8_general_ci"] = &generalCICollator{}
 	newCollatorIDMap[int(mysql.CollationNames["utf8_general_ci"])] = &generalCICollator{}
+	newCollatorMap["gbk_bin"] = &binCollator{}
+	newCollatorIDMap[int(mysql.CollationNames["gbk_bin"])] = &binCollator{}
+	newCollatorMap["gb18030_bin"] = &binCollator{}
+	newCollatorIDMap[int(mysql.CollationNames["gb18030_bin"])] = &binCollator{}
 }
