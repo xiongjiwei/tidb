@@ -4537,6 +4537,8 @@ func buildPartitionInfo(ctx sessionctx.Context, meta *model.TableInfo, d *ddl, s
 		}
 		if meta.Partition.Type == model.PartitionTypeRange {
 			err = buildRangePartitionInfo(ctx, meta, part, def, &piDef)
+		} else {
+			err = buildListPartitionInfo(ctx, meta, part, def, &piDef)
 		}
 		if err != nil {
 			return nil, err
@@ -4558,6 +4560,30 @@ func buildRangePartitionInfo(ctx sessionctx.Context, meta *model.TableInfo, part
 	for _, expr := range clause.Exprs {
 		expr.Format(buf)
 		piDef.LessThan = append(piDef.LessThan, buf.String())
+		buf.Reset()
+	}
+	return nil
+}
+
+func buildListPartitionInfo(ctx sessionctx.Context, meta *model.TableInfo, part *model.PartitionInfo, def *ast.PartitionDefinition, piDef *model.PartitionDefinition) error {
+	// For List partition only VALUES IN should be possible.
+	clause := def.Clause.(*ast.PartitionDefinitionClauseIn)
+	if len(part.Columns) > 0 {
+		for _, vs := range clause.Values {
+			if err := checkColumnsTypeAndValuesMatch(ctx, meta, vs); err != nil {
+				return err
+			}
+		}
+	}
+	buf := new(bytes.Buffer)
+	for _, vs := range clause.Values {
+		inValue := make([]string, 0, len(vs))
+		for i := range vs {
+			buf.Reset()
+			vs[i].Format(buf)
+			inValue = append(inValue, buf.String())
+		}
+		piDef.InValues = append(piDef.InValues, inValue)
 		buf.Reset()
 	}
 	return nil
