@@ -1096,6 +1096,19 @@ func appendPartitionInfo(partitionInfo *model.PartitionInfo, buf *bytes.Buffer) 
 			}
 		}
 		buf.WriteString(") (\n")
+	} else if partitionInfo.Type == model.PartitionTypeList {
+		if len(partitionInfo.Columns) == 0 {
+			fmt.Fprintf(buf, "\nPARTITION BY %s ( %s ) (\n", partitionInfo.Type.String(), partitionInfo.Expr)
+		} else {
+			colsName := ""
+			for _, col := range partitionInfo.Columns {
+				if len(colsName) > 0 {
+					colsName += ","
+				}
+				colsName += col.O
+			}
+			fmt.Fprintf(buf, "\nPARTITION BY LIST COLUMNS(%s) (\n", colsName)
+		}
 	} else {
 		fmt.Fprintf(buf, "\nPARTITION BY %s ( %s ) (\n", partitionInfo.Type.String(), partitionInfo.Expr)
 	}
