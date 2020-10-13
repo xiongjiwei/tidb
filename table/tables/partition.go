@@ -192,12 +192,20 @@ func generateRangeColumnsPartitionExpr(ctx sessionctx.Context, pi *model.Partiti
 		}
 		partStr += col.L
 	}
-	for i := 0; i < len(pi.Definitions); i++ {
-		if strings.EqualFold(pi.Definitions[i].LessThan[0], "MAXVALUE") {
-			// Expr less than maxvalue is always true.
-			fmt.Fprintf(&buf, "true")
-		} else {
-			fmt.Fprintf(&buf, "((%s) < (%s))", partStr, strings.Join(pi.Definitions[i].LessThan, ","))
+	for i, def := range pi.Definitions {
+		for j, lessThan := range def.LessThan {
+			if strings.EqualFold(lessThan, "MAXVALUE") {
+				// Expr less than maxvalue is always true.
+				if buf.Len() == 0 {
+					buf.WriteString("true")
+				}
+				break
+			} else {
+				if buf.Len() > 0 {
+					buf.WriteString(" and ")
+				}
+				fmt.Fprintf(&buf, "%s < %s", pi.Columns[j], lessThan)
+			}
 		}
 
 		exprs, err := expression.ParseSimpleExprsWithNames(ctx, buf.String(), schema, names)
@@ -210,11 +218,17 @@ func generateRangeColumnsPartitionExpr(ctx sessionctx.Context, pi *model.Partiti
 		locateExprs = append(locateExprs, exprs[0])
 
 		if i > 0 {
-			fmt.Fprintf(&buf, " and ((%s) >= (%s))", partStr, strings.Join(pi.Definitions[i-1].LessThan, ","))
+			preDef := pi.Definitions[i-1]
+			for j, lessThan := range def.LessThan {
+				if strings.EqualFold(lessThan, "MAXVALUE") || strings.EqualFold(preDef.LessThan[j], "MAXVALUE") {
+					break
+				}
+				fmt.Fprintf(&buf, " and %s >= %s", pi.Columns[j], preDef.LessThan[j])
+			}
 		} else {
 			// NULL will locate in the first partition, so its expression is (expr < value or expr is null).
 			for _, col := range pi.Columns {
-				fmt.Fprintf(&buf, " or ((%s) is null)", col.L)
+				fmt.Fprintf(&buf, " or (%s is null)", col.L)
 			}
 		}
 
