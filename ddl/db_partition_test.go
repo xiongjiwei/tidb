@@ -236,11 +236,10 @@ func (s *testIntegrationSuite3) TestCreateTableWithPartition(c *C) {
 	tk.MustExec("set @@tidb_enable_table_partition = 1")
 	tk.MustExec(`create table t30 (
 		  a int,
-		  b float,
+		  b int,
 		  c varchar(30))
 		  partition by range columns (a, b)
-		  (partition p0 values less than (10, 10.0))`)
-	tk.MustQuery("show warnings").Check(testkit.Rows("Warning 8200 Unsupported partition type, treat as normal table"))
+		  (partition p0 values less than (10, 10))`)
 
 	tk.MustGetErrCode(`create table t31 (a int not null) partition by range( a );`, tmysql.ErrPartitionsMustBeDefined)
 	tk.MustGetErrCode(`create table t32 (a int not null) partition by range columns( a );`, tmysql.ErrPartitionsMustBeDefined)
@@ -397,39 +396,36 @@ create table log_message_1 (
 			"create table t (id text) partition by range columns (id) (partition p0 values less than ('abc'));",
 			ddl.ErrNotAllowedTypeInPartition,
 		},
-		// create as normal table, warning.
-		//	{
-		//		"create table t (a int, b varchar(64)) partition by range columns (a, b) (" +
-		//			"partition p0 values less than (1, 'a')," +
-		//			"partition p1 values less than (1, 'a'))",
-		//		ddl.ErrRangeNotIncreasing,
-		//	},
+		{
+			"create table t (a int, b varchar(64)) partition by range columns (a, b) (" +
+				"partition p0 values less than (1, 'a')," +
+				"partition p1 values less than (1, 'a'))",
+			ddl.ErrRangeNotIncreasing,
+		},
 		{
 			"create table t (a int, b varchar(64)) partition by range columns ( b) (" +
 				"partition p0 values less than ( 'a')," +
 				"partition p1 values less than ('a'))",
 			ddl.ErrRangeNotIncreasing,
 		},
-		// create as normal table, warning.
-		//	{
-		//		"create table t (a int, b varchar(64)) partition by range columns (a, b) (" +
-		//			"partition p0 values less than (1, 'b')," +
-		//			"partition p1 values less than (1, 'a'))",
-		//		ddl.ErrRangeNotIncreasing,
-		//	},
+		{
+			"create table t (a int, b varchar(64)) partition by range columns (a, b) (" +
+				"partition p0 values less than (1, 'b')," +
+				"partition p1 values less than (1, 'a'))",
+			ddl.ErrRangeNotIncreasing,
+		},
 		{
 			"create table t (a int, b varchar(64)) partition by range columns (b) (" +
 				"partition p0 values less than ('b')," +
 				"partition p1 values less than ('a'))",
 			ddl.ErrRangeNotIncreasing,
 		},
-		// create as normal table, warning.
-		//		{
-		//			"create table t (a int, b varchar(64)) partition by range columns (a, b) (" +
-		//				"partition p0 values less than (1, maxvalue)," +
-		//				"partition p1 values less than (1, 'a'))",
-		//			ddl.ErrRangeNotIncreasing,
-		//		},
+		{
+			"create table t (a int, b varchar(64)) partition by range columns (a, b) (" +
+				"partition p0 values less than (1, maxvalue)," +
+				"partition p1 values less than (1, 'a'))",
+			ddl.ErrRangeNotIncreasing,
+		},
 		{
 			"create table t (a int, b varchar(64)) partition by range columns ( b) (" +
 				"partition p0 values less than (  maxvalue)," +
@@ -452,13 +448,72 @@ create table log_message_1 (
 		))
 	}
 
-	tk.MustExec("create table t1 (a int, b char(3)) partition by range columns (a, b) (" +
-		"partition p0 values less than (1, 'a')," +
-		"partition p1 values less than (2, maxvalue))")
+	validCases := []string{
+		"create table t (a int, b char(3)) partition by range columns (a, b) (" +
+			"partition p0 values less than (1, 'a')," +
+			"partition p1 values less than (2, maxvalue))",
 
-	tk.MustExec("create table t2 (a int, b char(3)) partition by range columns (b) (" +
-		"partition p0 values less than ( 'a')," +
-		"partition p1 values less than (maxvalue))")
+		"create table t (a int, b char(3)) partition by range columns (b) (" +
+			"partition p0 values less than ( 'a')," +
+			"partition p1 values less than (maxvalue))",
+
+		`CREATE TABLE t(
+			a INT,
+		    b INT,
+		    c CHAR(3),
+		    d INT
+		)
+		PARTITION BY RANGE COLUMNS(a,d,c) (
+		    PARTITION p0 VALUES LESS THAN (5,10,'ggg'),
+		    PARTITION p1 VALUES LESS THAN (10,20,'mmm'),
+		    PARTITION p2 VALUES LESS THAN (15,30,'sss'),
+		    PARTITION p3 VALUES LESS THAN (MAXVALUE,MAXVALUE,MAXVALUE)
+		);`,
+		`CREATE TABLE t (
+		    a INT,
+		    b INT
+		)
+		PARTITION BY RANGE COLUMNS(a,b) (
+		    PARTITION p0 VALUES LESS THAN (0,10),
+		    PARTITION p1 VALUES LESS THAN (10,20),
+		    PARTITION p2 VALUES LESS THAN (10,30),
+		    PARTITION p3 VALUES LESS THAN (10,35),
+		    PARTITION p4 VALUES LESS THAN (20,40),
+		    PARTITION p5 VALUES LESS THAN (MAXVALUE,MAXVALUE)
+		 );`,
+		`CREATE TABLE t (
+		    a INT,
+		    b INT,
+		    c INT
+		)
+		PARTITION BY RANGE COLUMNS(a,b,c) (
+		    PARTITION p0 VALUES LESS THAN (0,25,50),
+		    PARTITION p1 VALUES LESS THAN (10,20,100),
+		    PARTITION p2 VALUES LESS THAN (10,30,50),
+		    PARTITION p3 VALUES LESS THAN (MAXVALUE,MAXVALUE,MAXVALUE)
+		 );`,
+		`CREATE TABLE t(
+		    id INT,
+		    hired DATE,
+		    age INT
+		)
+		PARTITION BY RANGE COLUMNS (id,hired)  (
+		    PARTITION p0 VALUES LESS THAN (100,'1970-01-01'),
+		    PARTITION p1 VALUES LESS THAN (200,'1980-01-01'),
+		    PARTITION p2 VALUES LESS THAN (200,'1990-01-01'),
+		    PARTITION p3 VALUES LESS THAN (MAXVALUE,'1900-01-01')
+		);`,
+	}
+
+	for _, sql := range validCases {
+		tk.MustExec("drop table if exists t")
+		tk.MustExec(sql)
+		tbl := testGetTableByName(c, s.ctx, "test", "t")
+		tblInfo := tbl.Meta()
+		c.Assert(tblInfo.Partition, NotNil)
+		c.Assert(tblInfo.Partition.Enable, Equals, true)
+		c.Assert(tblInfo.Partition.Type == model.PartitionTypeRange, IsTrue)
+	}
 }
 
 func (s *testIntegrationSuite1) TestCreateTableWithListPartition(c *C) {
@@ -711,6 +766,48 @@ func (s *testIntegrationSuite5) TestAlterTableAddPartition(c *C) {
 	tk.MustGetErrCode(sql, tmysql.ErrWrongTypeColumnValue)
 }
 
+func (s *testIntegrationSuite5) TestAlterTableAddPartitionByRangeColumns(c *C) {
+	tk := testkit.NewTestKit(c, s.store)
+	tk.MustExec("use test;")
+	tk.MustExec("drop table if exists t;")
+	tk.MustExec(`create table t(
+	id int not null,
+	hired date not null
+	)
+	partition by range columns ( id,hired ) (
+	    PARTITION p0 VALUES LESS THAN (100,'1970-01-01'),
+	    PARTITION p1 VALUES LESS THAN (200,'1980-01-01'),
+	    PARTITION p2 VALUES LESS THAN (200,'1990-01-01')
+	);`)
+	tk.MustExec(`alter table t add partition (
+	    PARTITION p3 VALUES LESS THAN (300,'1980-01-01'),
+	    PARTITION p4 VALUES LESS THAN (MAXVALUE,'1990-01-01')
+	);`)
+
+	ctx := tk.Se.(sessionctx.Context)
+	is := domain.GetDomain(ctx).InfoSchema()
+	tbl, err := is.TableByName(model.NewCIStr("test"), model.NewCIStr("t"))
+	c.Assert(err, IsNil)
+	c.Assert(tbl.Meta().Partition, NotNil)
+	part := tbl.Meta().Partition
+	c.Assert(part.Type, Equals, model.PartitionTypeRange)
+
+	c.Assert(part.Expr, Equals, "")
+	c.Assert(part.Columns[0].L, Equals, "id")
+	c.Assert(part.Columns[1].L, Equals, "hired")
+	c.Assert(part.Definitions, HasLen, 5)
+	c.Assert(part.Definitions[0].LessThan, DeepEquals, []string{"100", "\"1970-01-01\""})
+	c.Assert(part.Definitions[0].Name, Equals, model.NewCIStr("p0"))
+	c.Assert(part.Definitions[1].LessThan, DeepEquals, []string{"200", "\"1980-01-01\""})
+	c.Assert(part.Definitions[1].Name, Equals, model.NewCIStr("p1"))
+	c.Assert(part.Definitions[2].LessThan, DeepEquals, []string{"200", "\"1990-01-01\""})
+	c.Assert(part.Definitions[2].Name, Equals, model.NewCIStr("p2"))
+	c.Assert(part.Definitions[3].LessThan, DeepEquals, []string{"300", "\"1980-01-01\""})
+	c.Assert(part.Definitions[3].Name, Equals, model.NewCIStr("p3"))
+	c.Assert(part.Definitions[4].LessThan, DeepEquals, []string{"MAXVALUE", "\"1990-01-01\""})
+	c.Assert(part.Definitions[4].Name, Equals, model.NewCIStr("p4"))
+}
+
 func (s *testIntegrationSuite5) TestAlterTableAddPartitionByList(c *C) {
 	tk := testkit.NewTestKit(c, s.store)
 	tk.MustExec("use test;")
@@ -770,6 +867,45 @@ func (s *testIntegrationSuite5) TestAlterTableAddPartitionByList(c *C) {
 			i, t.sql, t.err, err,
 		))
 	}
+}
+
+func (s *testIntegrationSuite5) TestAlterTableDropPartitionByRangeColumns(c *C) {
+	tk := testkit.NewTestKit(c, s.store)
+	tk.MustExec("use test;")
+	tk.MustExec("drop table if exists t;")
+	tk.MustExec(`create table t(
+	id int not null,
+	hired date not null
+	)
+	partition by range columns ( id,hired ) (
+	    PARTITION p0 VALUES LESS THAN (100,'1970-01-01'),
+	    PARTITION p1 VALUES LESS THAN (200,'1980-01-01'),
+	    PARTITION p2 VALUES LESS THAN (200,'1990-01-01')
+	);`)
+
+	tk.MustExec(`alter table t drop partition p1`)
+	ctx := tk.Se.(sessionctx.Context)
+	is := domain.GetDomain(ctx).InfoSchema()
+	tbl, err := is.TableByName(model.NewCIStr("test"), model.NewCIStr("t"))
+	c.Assert(err, IsNil)
+	c.Assert(tbl.Meta().Partition, NotNil)
+	part := tbl.Meta().Partition
+	c.Assert(part.Type, Equals, model.PartitionTypeRange)
+
+	c.Assert(part.Expr, Equals, "")
+	c.Assert(part.Columns[0].L, Equals, "id")
+	c.Assert(part.Columns[1].L, Equals, "hired")
+	c.Assert(part.Definitions, HasLen, 2)
+	c.Assert(part.Definitions[0].LessThan, DeepEquals, []string{"100", "\"1970-01-01\""})
+	c.Assert(part.Definitions[0].Name, Equals, model.NewCIStr("p0"))
+	c.Assert(part.Definitions[1].LessThan, DeepEquals, []string{"200", "\"1990-01-01\""})
+	c.Assert(part.Definitions[1].Name, Equals, model.NewCIStr("p2"))
+
+	sql := "alter table t drop partition p10;"
+	tk.MustGetErrCode(sql, tmysql.ErrDropPartitionNonExistent)
+	tk.MustExec(`alter table t drop partition p2`)
+	sql = "alter table t drop partition p0;"
+	tk.MustGetErrCode(sql, tmysql.ErrDropLastPartition)
 }
 
 func (s *testIntegrationSuite5) TestAlterTableDropPartitionByList(c *C) {
