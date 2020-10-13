@@ -130,6 +130,7 @@ func generateRangePartitionExpr(ctx sessionctx.Context, pi *model.PartitionInfo,
 		// partition by range columns (c1)
 		partStr = pi.Columns[0].L
 	} else {
+		// partition by range multi-columns, such as columns (c1,c2)
 		return generateRangeColumnsPartitionExpr(ctx, pi, columns, names)
 	}
 	partitionPruneExprs := make([]expression.Expression, 0, len(pi.Definitions))
@@ -152,7 +153,6 @@ func generateRangePartitionExpr(ctx sessionctx.Context, pi *model.PartitionInfo,
 			return nil, errors.Trace(err)
 		}
 		locateExprs = append(locateExprs, exprs[0])
-		fmt.Printf("locate expr: %v --\n", buf.String())
 
 		if i > 0 {
 			fmt.Fprintf(&buf, " and ((%s) >= (%s))", partStr, pi.Definitions[i-1].LessThan[0])
@@ -161,7 +161,6 @@ func generateRangePartitionExpr(ctx sessionctx.Context, pi *model.PartitionInfo,
 			fmt.Fprintf(&buf, " or ((%s) is null)", partStr)
 		}
 
-		fmt.Printf("partition prune expr: %v   ---\n", buf.String())
 		exprs, err = expression.ParseSimpleExprsWithNames(ctx, buf.String(), schema, names)
 		if err != nil {
 			// If it got an error here, ddl may hang forever, so this error log is important.
@@ -185,13 +184,6 @@ func generateRangeColumnsPartitionExpr(ctx sessionctx.Context, pi *model.Partiti
 	locateExprs := make([]expression.Expression, 0, len(pi.Definitions))
 	var buf bytes.Buffer
 	schema := expression.NewSchema(columns...)
-	var partStr string
-	for i, col := range pi.Columns {
-		if i > 0 {
-			partStr += ","
-		}
-		partStr += col.L
-	}
 	for i, def := range pi.Definitions {
 		for j, lessThan := range def.LessThan {
 			if strings.EqualFold(lessThan, "MAXVALUE") {
