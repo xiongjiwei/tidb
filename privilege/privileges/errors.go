@@ -22,5 +22,6 @@ import (
 var (
 	errInvalidPrivilegeType = terror.ClassPrivilege.New(mysql.ErrInvalidPrivilegeType, mysql.MySQLErrName[mysql.ErrInvalidPrivilegeType])
 	ErrNonexistingGrant     = terror.ClassPrivilege.New(mysql.ErrNonexistingGrant, mysql.MySQLErrName[mysql.ErrNonexistingGrant])
+	ErrNotValidPassword     = terror.ClassPrivilege.New(mysql.ErrNotValidPassword, mysql.MySQLErrName[mysql.ErrNotValidPassword])
 	errLoadPrivilege        = terror.ClassPrivilege.New(mysql.ErrLoadPrivilege, mysql.MySQLErrName[mysql.ErrLoadPrivilege])
 )
