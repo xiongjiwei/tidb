@@ -137,7 +137,6 @@ func buildRangePartitionDefinitions(ctx sessionctx.Context, s *ast.CreateTableSt
 		}
 
 		buf := new(bytes.Buffer)
-		// Range columns partitions support multi-column partitions.
 		for _, expr := range def.Clause.(*ast.PartitionDefinitionClauseLessThan).Exprs {
 			expr.Format(buf)
 			piDef.LessThan = append(piDef.LessThan, buf.String())

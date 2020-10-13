@@ -214,7 +214,6 @@ func generateRangeColumnsPartitionExpr(ctx sessionctx.Context, pi *model.Partiti
 			logutil.BgLogger().Error("wrong table partition expression", zap.String("expression", buf.String()), zap.Error(err))
 			return nil, errors.Trace(err)
 		}
-		fmt.Printf("locate expr: %v --\n", buf.String())
 		locateExprs = append(locateExprs, exprs[0])
 
 		if i > 0 {
@@ -232,7 +231,6 @@ func generateRangeColumnsPartitionExpr(ctx sessionctx.Context, pi *model.Partiti
 			}
 		}
 
-		fmt.Printf("partition prune expr: %v   ---\n", buf.String())
 		exprs, err = expression.ParseSimpleExprsWithNames(ctx, buf.String(), schema, names)
 		if err != nil {
 			// If it got an error here, ddl may hang forever, so this error log is important.
