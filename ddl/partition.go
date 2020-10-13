@@ -820,10 +820,11 @@ func checkRangePartitioningKeysConstraints(sctx sessionctx.Context, s *ast.Creat
 	// See https://dev.mysql.com/doc/refman/5.7/en/partitioning-limitations-partitioning-keys-unique-keys.html
 	for _, index := range tblInfo.Indices {
 		if index.Unique && !checkUniqueKeyIncludePartKey(partCols, index.Columns) {
-			if index.Primary {
-				return ErrUniqueKeyNeedAllFieldsInPf.GenWithStackByArgs("PRIMARY KEY")
-			}
-			return ErrUniqueKeyNeedAllFieldsInPf.GenWithStackByArgs("UNIQUE INDEX")
+			// if index.Primary {
+			// 	return ErrUniqueKeyNeedAllFieldsInPf.GenWithStackByArgs("PRIMARY KEY")
+			// }
+			// return ErrUniqueKeyNeedAllFieldsInPf.GenWithStackByArgs("UNIQUE INDEX")
+			index.Global = true
 		}
 	}
 	// when PKIsHandle, tblInfo.Indices will not contain the primary key.
