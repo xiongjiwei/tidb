@@ -2892,5 +2892,17 @@ func (s *testSuite4) TestWritePartitionTableByRangeColumns(c *C) {
 	c.Assert(err.Error(), Equals, "[table:1526]Table has no partition for value from column_list")
 	_, err = tk.Exec("insert into t values  (250, '2000-01-02',20)")
 	c.Assert(err.Error(), Equals, "[table:1526]Table has no partition for value from column_list")
+
+	// Test drop partition;
+	tk.MustQuery("select * from t").Check(testkit.Rows("1 1960-01-01 20"))
+	tk.MustExec("alter table t drop partition p0;")
+	tk.MustQuery("select * from t").Check(testkit.Rows())
+
+	// Test add partition;
+	_, err = tk.Exec("insert into t values  (500, '1960-01-01',20)")
+	c.Assert(err.Error(), Equals, "[table:1526]Table has no partition for value from column_list")
+	tk.MustExec("alter table t add partition (partition p4 values less than (600,'2000-01-01'));")
+	tk.MustExec("insert into t values  (500, '1960-01-01',20)")
+	tk.MustQuery("select * from t").Check(testkit.Rows("500 1960-01-01 20"))
 	tk.MustExec("admin check table t;")
 }
