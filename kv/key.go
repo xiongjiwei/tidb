@@ -16,6 +16,11 @@ package kv
 import (
 	"bytes"
 	"encoding/hex"
+	"strconv"
+	"runtime/debug"
+
+	"github.com/pingcap/tidb/types"
+	"github.com/pingcap/tidb/util/codec"
 )
 
 // Key represents high-level Key type.
@@ -118,4 +123,104 @@ func (r *KeyRange) IsPoint() bool {
 	diffOneIdx := i
 	return r.StartKey[diffOneIdx]+1 == r.EndKey[diffOneIdx] &&
 		bytes.Equal(r.StartKey[:diffOneIdx], r.EndKey[:diffOneIdx])
+}
+
+// Handle is the ID of a row.
+type Handle interface {
+	// IsInt returns if the handle type is int64.
+	IsInt() bool
+	// IntValue returns the int64 value if IsInt is true, it panics if IsInt returns false.
+	IntValue() int64
+	// Next returns the minimum handle that is greater than this handle.
+	Next() Handle
+	// Equal returns if the handle equals to another handle, it panics if the types are different.
+	Equal(h Handle) bool
+	// Compare returns the comparison result of the two handles, it panics if the types are different.
+	Compare(h Handle) int
+	// Encoded returns the encoded bytes.
+	Encoded() []byte
+	// Len returns the length of the encoded bytes.
+	Len() int
+	// NumCols returns the number of columns of the handle,
+	NumCols() int
+	// EncodedCol returns the encoded column value at the given column index.
+	EncodedCol(idx int) []byte
+	// Data returns the data of all columns of a handle.
+	Data() ([]types.Datum, error)
+	// String implements the fmt.Stringer interface.
+	String() string
+}
+
+// IntHandle implement the Handle interface for int64 type handle.
+type IntHandle int64
+
+// IsInt implements the Handle interface.
+func (ih IntHandle) IsInt() bool {
+	return true
+}
+
+// IntValue implements the Handle interface.
+func (ih IntHandle) IntValue() int64 {
+	return int64(ih)
+}
+
+// Next implements the Handle interface.
+func (ih IntHandle) Next() Handle {
+	return IntHandle(int64(ih) + 1)
+}
+
+// Equal implements the Handle interface.
+func (ih IntHandle) Equal(h Handle) bool {
+	return h.IsInt() && int64(ih) == h.IntValue()
+}
+
+// Compare implements the Handle interface.
+func (ih IntHandle) Compare(h Handle) int {
+	if !h.IsInt() {
+		panic("IntHandle compares to CommonHandle")
+	}
+	ihVal := ih.IntValue()
+	hVal := h.IntValue()
+	if ihVal > hVal {
+		return 1
+	}
+	if ihVal < hVal {
+		return -1
+	}
+	return 0
+}
+
+// Encoded implements the Handle interface.
+func (ih IntHandle) Encoded() []byte {
+	return codec.EncodeInt(nil, int64(ih))
+}
+
+// Len implements the Handle interface.
+func (ih IntHandle) Len() int {
+	return 8
+}
+
+// NumCols implements the Handle interface, not supported for IntHandle type.
+func (ih IntHandle) NumCols() int {
+	panic("not supported in IntHandle")
+}
+
+// EncodedCol implements the Handle interface., not supported for IntHandle type.
+func (ih IntHandle) EncodedCol(idx int) []byte {
+	panic("not supported in IntHandle")
+}
+
+// Data implements the Handle interface.
+func (ih IntHandle) Data() ([]types.Datum, error) {
+	return []types.Datum{types.NewIntDatum(int64(ih))}, nil
+}
+
+// String implements the Handle interface.
+func (ih IntHandle) String() string {
+	return strconv.FormatInt(int64(ih), 10)
+}
+
+func NewCommonHandle([]byte) (Handle, error) {
+	debug.PrintStack()
+	panic("should not be called in this cherry pick")
 }
