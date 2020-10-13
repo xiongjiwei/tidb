@@ -119,30 +119,23 @@ type PartitionExpr struct {
 	InValues []expression.Expression
 }
 
-// rangePartitionString returns the partition string for a range typed partition.
-func rangePartitionString(pi *model.PartitionInfo) string {
-	// partition by range expr
-	if len(pi.Columns) == 0 {
-		return pi.Expr
-	}
-
-	// partition by range columns (c1)
-	if len(pi.Columns) == 1 {
-		return pi.Columns[0].L
-	}
-
-	// partition by range columns (c1, c2, ...)
-	panic("create table assert len(columns) = 1")
-}
-
 func generateRangePartitionExpr(ctx sessionctx.Context, pi *model.PartitionInfo,
 	columns []*expression.Column, names types.NameSlice) (*PartitionExpr, error) {
 	// The caller should assure partition info is not nil.
+	var partStr string
+	if len(pi.Columns) == 0 {
+		// partition by range expr
+		partStr = pi.Expr
+	} else if len(pi.Columns) == 1 {
+		// partition by range columns (c1)
+		partStr = pi.Columns[0].L
+	} else {
+		return generateRangeColumnsPartitionExpr(ctx, pi, columns, names)
+	}
 	partitionPruneExprs := make([]expression.Expression, 0, len(pi.Definitions))
 	locateExprs := make([]expression.Expression, 0, len(pi.Definitions))
 	var buf bytes.Buffer
 	schema := expression.NewSchema(columns...)
-	partStr := rangePartitionString(pi)
 	for i := 0; i < len(pi.Definitions); i++ {
 
 		if strings.EqualFold(pi.Definitions[i].LessThan[0], "MAXVALUE") {
@@ -159,6 +152,7 @@ func generateRangePartitionExpr(ctx sessionctx.Context, pi *model.PartitionInfo,
 			return nil, errors.Trace(err)
 		}
 		locateExprs = append(locateExprs, exprs[0])
+		fmt.Printf("locate expr: %v --\n", buf.String())
 
 		if i > 0 {
 			fmt.Fprintf(&buf, " and ((%s) >= (%s))", partStr, pi.Definitions[i-1].LessThan[0])
@@ -167,6 +161,64 @@ func generateRangePartitionExpr(ctx sessionctx.Context, pi *model.PartitionInfo,
 			fmt.Fprintf(&buf, " or ((%s) is null)", partStr)
 		}
 
+		fmt.Printf("partition prune expr: %v   ---\n", buf.String())
+		exprs, err = expression.ParseSimpleExprsWithNames(ctx, buf.String(), schema, names)
+		if err != nil {
+			// If it got an error here, ddl may hang forever, so this error log is important.
+			logutil.BgLogger().Error("wrong table partition expression", zap.String("expression", buf.String()), zap.Error(err))
+			return nil, errors.Trace(err)
+		}
+		// Get a hash code in advance to prevent data race afterwards.
+		exprs[0].HashCode(ctx.GetSessionVars().StmtCtx)
+		partitionPruneExprs = append(partitionPruneExprs, exprs[0])
+		buf.Reset()
+	}
+	return &PartitionExpr{
+		UpperBounds: locateExprs,
+	}, nil
+}
+
+func generateRangeColumnsPartitionExpr(ctx sessionctx.Context, pi *model.PartitionInfo,
+	columns []*expression.Column, names types.NameSlice) (*PartitionExpr, error) {
+	// The caller should assure partition info is not nil.
+	partitionPruneExprs := make([]expression.Expression, 0, len(pi.Definitions))
+	locateExprs := make([]expression.Expression, 0, len(pi.Definitions))
+	var buf bytes.Buffer
+	schema := expression.NewSchema(columns...)
+	var partStr string
+	for i, col := range pi.Columns {
+		if i > 0 {
+			partStr += ","
+		}
+		partStr += col.L
+	}
+	for i := 0; i < len(pi.Definitions); i++ {
+		if strings.EqualFold(pi.Definitions[i].LessThan[0], "MAXVALUE") {
+			// Expr less than maxvalue is always true.
+			fmt.Fprintf(&buf, "true")
+		} else {
+			fmt.Fprintf(&buf, "((%s) < (%s))", partStr, strings.Join(pi.Definitions[i].LessThan, ","))
+		}
+
+		exprs, err := expression.ParseSimpleExprsWithNames(ctx, buf.String(), schema, names)
+		if err != nil {
+			// If it got an error here, ddl may hang forever, so this error log is important.
+			logutil.BgLogger().Error("wrong table partition expression", zap.String("expression", buf.String()), zap.Error(err))
+			return nil, errors.Trace(err)
+		}
+		fmt.Printf("locate expr: %v --\n", buf.String())
+		locateExprs = append(locateExprs, exprs[0])
+
+		if i > 0 {
+			fmt.Fprintf(&buf, " and ((%s) >= (%s))", partStr, strings.Join(pi.Definitions[i-1].LessThan, ","))
+		} else {
+			// NULL will locate in the first partition, so its expression is (expr < value or expr is null).
+			for _, col := range pi.Columns {
+				fmt.Fprintf(&buf, " or ((%s) is null)", col.L)
+			}
+		}
+
+		fmt.Printf("partition prune expr: %v   ---\n", buf.String())
 		exprs, err = expression.ParseSimpleExprsWithNames(ctx, buf.String(), schema, names)
 		if err != nil {
 			// If it got an error here, ddl may hang forever, so this error log is important.

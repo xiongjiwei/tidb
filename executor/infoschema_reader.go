@@ -699,7 +699,7 @@ func (e *memtableRetriever) setDataFromPartitions(ctx sessionctx.Context, schema
 
 					var partitionDesc interface{}
 					if table.Partition.Type == model.PartitionTypeRange {
-						partitionDesc = pi.LessThan[0]
+						partitionDesc = strings.Join(pi.LessThan, ",")
 					} else if table.Partition.Type == model.PartitionTypeList {
 						partitionDesc = strings.Join(pi.InValues, ",")
 					}
