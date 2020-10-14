@@ -1096,6 +1096,19 @@ func appendPartitionInfo(partitionInfo *model.PartitionInfo, buf *bytes.Buffer) 
 			}
 		}
 		buf.WriteString(") (\n")
+	} else if partitionInfo.Type == model.PartitionTypeList {
+		if len(partitionInfo.Columns) == 0 {
+			fmt.Fprintf(buf, "\nPARTITION BY %s ( %s ) (\n", partitionInfo.Type.String(), partitionInfo.Expr)
+		} else {
+			colsName := ""
+			for _, col := range partitionInfo.Columns {
+				if len(colsName) > 0 {
+					colsName += ","
+				}
+				colsName += col.O
+			}
+			fmt.Fprintf(buf, "\nPARTITION BY LIST COLUMNS(%s) (\n", colsName)
+		}
 	} else {
 		fmt.Fprintf(buf, "\nPARTITION BY %s ( %s ) (\n", partitionInfo.Type.String(), partitionInfo.Expr)
 	}
@@ -1113,8 +1126,20 @@ func appendPartitionInfo(partitionInfo *model.PartitionInfo, buf *bytes.Buffer) 
 	}
 	if partitionInfo.Type == model.PartitionTypeList {
 		for i, def := range partitionInfo.Definitions {
-			values := strings.Join(def.InValues, ",")
-			fmt.Fprintf(buf, "  PARTITION `%s` VALUES IN (%s)", def.Name, values)
+			values := bytes.NewBuffer(nil)
+			for j, inValues := range def.InValues {
+				if j > 0 {
+					values.WriteString(",")
+				}
+				if len(inValues) > 1 {
+					values.WriteString("(")
+					values.WriteString(strings.Join(inValues, ","))
+					values.WriteString(")")
+				} else {
+					values.WriteString(strings.Join(inValues, ","))
+				}
+			}
+			fmt.Fprintf(buf, "  PARTITION `%s` VALUES IN (%s)", def.Name, values.String())
 			if i < len(partitionInfo.Definitions)-1 {
 				buf.WriteString(",\n")
 			} else {

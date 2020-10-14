@@ -17,6 +17,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,6 +35,7 @@ import (
 	"github.com/pingcap/tidb/planner/core"
 	"github.com/pingcap/tidb/plugin"
 	"github.com/pingcap/tidb/privilege"
+	"github.com/pingcap/tidb/privilege/privileges"
 	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/sessionctx/variable"
 	"github.com/pingcap/tidb/util"
@@ -705,6 +707,19 @@ func (e *SimpleExec) executeCreateUser(ctx context.Context, s *ast.CreateUserStm
 			e.ctx.GetSessionVars().StmtCtx.AppendNote(err)
 			continue
 		}
+		if !s.IsCreateRole {
+			if spec.AuthOpt != nil {
+				if spec.AuthOpt.ByAuthString {
+					if !checkPasswordPolicy(e.ctx, spec.AuthOpt.AuthString, spec.User.Username) {
+						return privileges.ErrNotValidPassword.FastGenByArgs()
+					}
+				} else {
+					if !checkPasswordPolicy(e.ctx, spec.AuthOpt.HashString, spec.User.Username) {
+						return privileges.ErrNotValidPassword.FastGenByArgs()
+					}
+				}
+			}
+		}
 		pwd, ok := spec.EncodedPassword()
 		if !ok {
 			return errors.Trace(ErrPasswordFormat)
@@ -795,8 +810,14 @@ func (e *SimpleExec) executeAlterUser(s *ast.AlterUserStmt) error {
 		pwd := ""
 		if spec.AuthOpt != nil {
 			if spec.AuthOpt.ByAuthString {
+				if !checkPasswordPolicy(e.ctx, spec.AuthOpt.AuthString, spec.User.Username) {
+					return privileges.ErrNotValidPassword.FastGenByArgs()
+				}
 				pwd = auth.EncodePassword(spec.AuthOpt.AuthString)
 			} else {
+				if !checkPasswordPolicy(e.ctx, spec.AuthOpt.HashString, spec.User.Username) {
+					return privileges.ErrNotValidPassword.FastGenByArgs()
+				}
 				pwd = auth.EncodePassword(spec.AuthOpt.HashString)
 			}
 		}
@@ -1055,6 +1076,11 @@ func (e *SimpleExec) executeSetPwd(s *ast.SetPwdStmt) error {
 		return errors.Trace(ErrPasswordNoMatch)
 	}
 
+	// check password policy
+	if !checkPasswordPolicy(e.ctx, s.Password, s.User.Username) {
+		return privileges.ErrNotValidPassword.FastGenByArgs()
+	}
+
 	// update mysql.user
 	sql := fmt.Sprintf(`UPDATE %s.%s SET authentication_string='%s' WHERE User='%s' AND Host='%s';`, mysql.SystemDB, mysql.UserTable, auth.EncodePassword(s.Password), u, h)
 	_, _, err = e.ctx.(sqlexec.RestrictedSQLExecutor).ExecRestrictedSQL(sql)
@@ -1173,4 +1199,146 @@ func asyncDelayShutdown(p *os.Process, delay time.Duration) {
 	if err != nil {
 		panic(err)
 	}
+}
+
+func reverse(s string) (result string) {
+	for _, v := range s {
+		result = string(v) + result
+	}
+	return
+}
+
+func countNumber(authString []byte) (cnt int) {
+	for _, c := range authString {
+		if c >= '0' && c <= '9' {
+			cnt++
+		}
+	}
+	return
+}
+
+func countLower(authString []byte) (cnt int) {
+	for _, c := range authString {
+		if c >= 'a' && c <= 'z' {
+			cnt++
+		}
+	}
+	return
+}
+
+func countUpper(authString []byte) (cnt int) {
+	for _, c := range authString {
+		if c >= 'A' && c <= 'Z' {
+			cnt++
+		}
+	}
+	return
+}
+
+func countSpecialChar(authString []byte) (cnt int) {
+	for _, c := range authString {
+		if (c >= 'A' && c <= 'Z') && (c >= 'a' && c <= 'z') && (c >= '0' && c <= '9') {
+			cnt++
+		}
+	}
+	return
+}
+
+func checkPasswordLength(ctx sessionctx.Context, authString []byte) bool {
+	sessionVars := ctx.GetSessionVars()
+	pwdLength, err := variable.GetSessionSystemVar(sessionVars, variable.ValidatePasswordLength)
+	if err != nil {
+		logutil.BgLogger().Error("Get password length fail.", zap.Error(err))
+		return false
+	}
+	pwdLimit, err := strconv.ParseInt(pwdLength, 10, 0)
+	if err != nil {
+		logutil.BgLogger().Error("Get password length fail.", zap.Error(err))
+		return false
+	}
+	if len(authString) < int(pwdLimit) || len(authString) > 64 {
+		return false
+	}
+	return true
+}
+
+func checkPasswordChar(ctx sessionctx.Context, authString []byte) bool {
+	sessionVars := ctx.GetSessionVars()
+	pwdNumCntVar, err := variable.GetSessionSystemVar(sessionVars, variable.ValidatePasswordNumberCount)
+	if err != nil {
+		logutil.BgLogger().Error("Get password number count fail.", zap.Error(err))
+		return false
+	}
+	pwdNumCnt, err := strconv.ParseInt(pwdNumCntVar, 10, 0)
+	if err != nil {
+		logutil.BgLogger().Error("Get password number count fail.", zap.Error(err))
+		return false
+	}
+	pwdAlphaCntStr, err := variable.GetSessionSystemVar(sessionVars, variable.ValidatePasswordNumberCount)
+	if err != nil {
+		logutil.BgLogger().Error("Get password number count fail.", zap.Error(err))
+		return false
+	}
+	pwdAlphaCnt, err := strconv.ParseInt(pwdAlphaCntStr, 10, 0)
+	if err != nil {
+		logutil.BgLogger().Error("Get password number count fail.", zap.Error(err))
+		return false
+	}
+	pwdSpecialCntStr, err := variable.GetSessionSystemVar(sessionVars, variable.ValidatePasswordNumberCount)
+	if err != nil {
+		logutil.BgLogger().Error("Get password number count fail.", zap.Error(err))
+		return false
+	}
+	pwdSpecialCnt, err := strconv.ParseInt(pwdSpecialCntStr, 10, 0)
+	if err != nil {
+		logutil.BgLogger().Error("Get password number count fail.", zap.Error(err))
+		return false
+	}
+	if countLower(authString) >= int(pwdAlphaCnt) && countNumber(authString) >= int(pwdNumCnt) &&
+		countSpecialChar(authString) >= int(pwdSpecialCnt) && countUpper(authString) >= int(pwdAlphaCnt) {
+		return true
+	}
+	return false
+}
+
+func checkNumAndChar(ctx sessionctx.Context, authString []byte) bool {
+	sessionVars := ctx.GetSessionVars()
+	pwdLength, err := variable.GetSessionSystemVar(sessionVars, variable.ValidatePasswordLength)
+	if err != nil {
+		logutil.BgLogger().Error("Get password length fail.", zap.Error(err))
+		return false
+	}
+	pwdLimit, err := strconv.ParseInt(pwdLength, 10, 0)
+	if err != nil {
+		logutil.BgLogger().Error("Get password length fail.", zap.Error(err))
+		return false
+	}
+	if len(authString) < int(pwdLimit) || len(authString) > 64 {
+		return false
+	}
+	return true
+}
+
+func checkPasswordPolicy(ctx sessionctx.Context, authString string, userName string) bool {
+	sessionVars := ctx.GetSessionVars()
+	checkUserName, err := variable.GetSessionSystemVar(sessionVars, variable.ValidatePasswordCheckUserName)
+	if checkUserName == "on" || checkUserName == "1" || checkUserName == "ON" {
+		if string(authString) == userName || reverse(userName) == string(authString) {
+			return false
+		}
+	}
+	policy, err := variable.GetSessionSystemVar(sessionVars, variable.ValidatePasswordPolicy)
+	if err != nil {
+		logutil.BgLogger().Error("Get password policy fail.", zap.Error(err))
+		return false
+	}
+	switch policy {
+	case "off", "0":
+		return true
+	case "low", "1":
+		return checkPasswordLength(ctx, []byte(authString))
+	case "medium", "strong", "2", "3":
+		return checkPasswordLength(ctx, []byte(authString)) && checkNumAndChar(ctx, []byte(authString))
+	}
+	return false
 }

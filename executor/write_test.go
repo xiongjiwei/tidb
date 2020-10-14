@@ -2840,4 +2840,121 @@ func (s *testSuite4) TestWriteListPartitionTable(c *C) {
 	tk.MustQuery("select * from t partition (p1,p3) order by id").Check(testkit.Rows("<nil> <nil>", "1 a", "2 b", "7 f"))
 	tk.MustQuery("select * from t partition (p1,p3,p0,p2) order by id").Check(testkit.Rows("<nil> <nil>", "1 a", "2 b", "3 c", "4 d", "7 f"))
 	tk.MustQuery("select * from t order by id").Check(testkit.Rows("<nil> <nil>", "1 a", "2 b", "3 c", "4 d", "7 f"))
+	tk.MustExec("delete from t partition (p0)")
+	tk.MustQuery("select * from t order by id").Check(testkit.Rows("<nil> <nil>", "1 a", "2 b", "4 d", "7 f"))
+	tk.MustExec("delete from t partition (p3,p2)")
+	tk.MustQuery("select * from t order by id").Check(testkit.Rows("1 a", "2 b"))
+}
+
+func (s *testSuite4) TestWriteListColumnsPartitionTable(c *C) {
+	tk := testkit.NewTestKitWithInit(c, s.store)
+	tk.MustExec("use test")
+	tk.MustExec("set @@session.tidb_enable_table_partition = 1")
+	tk.MustExec("drop table if exists t")
+	tk.MustExec(`create table t (id int, name varchar(10), unique index idx (id)) partition by list columns (id) (
+    	partition p0 values in (3,5,6,9,17),
+    	partition p1 values in (1,2,10,11,19,20),
+    	partition p2 values in (4,12,13,14,18),
+    	partition p3 values in (7,8,15,16,null)
+	);`)
+
+	// Test insert,update,delete
+	tk.MustExec("insert into t values  (1, 'a')")
+	tk.MustExec("update t set name='b' where id=2;")
+	tk.MustQuery("select * from t").Check(testkit.Rows("1 a"))
+	tk.MustExec("update t set name='b' where id=1;")
+	tk.MustQuery("select * from t").Check(testkit.Rows("1 b"))
+	tk.MustExec("replace into t values  (1, 'c')")
+	tk.MustQuery("select * from t").Check(testkit.Rows("1 c"))
+	tk.MustExec("insert into t values (1, 'd') on duplicate key update name='e'")
+	tk.MustQuery("select * from t").Check(testkit.Rows("1 e"))
+	tk.MustExec("delete from t where id=1")
+	tk.MustQuery("select * from t").Check(testkit.Rows())
+	tk.MustExec("insert into t values  (2, 'f')")
+	tk.MustExec("delete from t where name='f'")
+	tk.MustQuery("select * from t").Check(testkit.Rows())
+
+	// Test insert error
+	tk.MustExec("insert into t values  (1, 'a')")
+	_, err := tk.Exec("insert into t values (1, 'd')")
+	c.Assert(err.Error(), Equals, "[kv:1062]Duplicate entry '1' for key 'idx'")
+	_, err = tk.Exec("insert into t values (100, 'd')")
+	c.Assert(err.Error(), Equals, "[table:1526]Table has no partition for value from column_list")
+	tk.MustExec("admin check table t;")
+
+	// Test select partition
+	tk.MustExec("insert into t values  (2,'b'),(3,'c'),(4,'d'),(7,'f'), (null,null)")
+	tk.MustQuery("select * from t partition (p0) order by id").Check(testkit.Rows("3 c"))
+	tk.MustQuery("select * from t partition (p1,p3) order by id").Check(testkit.Rows("<nil> <nil>", "1 a", "2 b", "7 f"))
+	tk.MustQuery("select * from t partition (p1,p3,p0,p2) order by id").Check(testkit.Rows("<nil> <nil>", "1 a", "2 b", "3 c", "4 d", "7 f"))
+	tk.MustQuery("select * from t order by id").Check(testkit.Rows("<nil> <nil>", "1 a", "2 b", "3 c", "4 d", "7 f"))
+	tk.MustExec("delete from t partition (p0)")
+	tk.MustQuery("select * from t order by id").Check(testkit.Rows("<nil> <nil>", "1 a", "2 b", "4 d", "7 f"))
+	tk.MustExec("delete from t partition (p3,p2)")
+	tk.MustQuery("select * from t order by id").Check(testkit.Rows("1 a", "2 b"))
+}
+
+func (s *testSuite4) TestWritePartitionTableByRangeColumns(c *C) {
+	tk := testkit.NewTestKitWithInit(c, s.store)
+	tk.MustExec("use test")
+	tk.MustExec("set @@session.tidb_enable_table_partition = 1")
+	tk.MustExec("drop table if exists t")
+	tk.MustExec(`CREATE TABLE t(
+	    id INT,
+	    hired DATE,
+	    age INT,
+		unique index idx (id,hired)
+	)
+	PARTITION BY RANGE COLUMNS (id,hired)  (
+	    PARTITION p0 VALUES LESS THAN (100,'1970-01-01'),
+	    PARTITION p1 VALUES LESS THAN (200,'1980-01-01'),
+	    PARTITION p2 VALUES LESS THAN (200,'1990-01-01'),
+	    PARTITION p3 VALUES LESS THAN (500,'2000-01-01')
+	);`)
+
+	// Test insert,update,delete
+	tk.MustExec("insert into t values  (1, '1960-01-01',20)")
+	tk.MustExec("update t set age=21 where id=1;")
+	tk.MustQuery("select * from t").Check(testkit.Rows("1 1960-01-01 21"))
+	tk.MustQuery("select * from t partition (p0)").Check(testkit.Rows("1 1960-01-01 21"))
+	tk.MustQuery("select * from t partition (p1,p2,p3)").Check(testkit.Rows())
+	tk.MustExec("update t set id=101, hired='1980-01-02' where id=1;")
+	tk.MustQuery("select * from t").Check(testkit.Rows("101 1980-01-02 21"))
+	tk.MustQuery("select * from t partition (p2)").Check(testkit.Rows("101 1980-01-02 21"))
+	tk.MustQuery("select * from t partition (p0,p1,p3)").Check(testkit.Rows())
+	tk.MustExec("replace into t values  (101, '1980-01-02',22)")
+	tk.MustQuery("select * from t").Check(testkit.Rows("101 1980-01-02 22"))
+	tk.MustQuery("select * from t partition (p2)").Check(testkit.Rows("101 1980-01-02 22"))
+	tk.MustQuery("select * from t partition (p0,p1,p3)").Check(testkit.Rows())
+	tk.MustExec("insert into t values (101, '1980-01-02',22) on duplicate key update id=300")
+	tk.MustQuery("select * from t").Check(testkit.Rows("300 1980-01-02 22"))
+	tk.MustQuery("select * from t partition (p3)").Check(testkit.Rows("300 1980-01-02 22"))
+	tk.MustQuery("select * from t partition (p0,p1,p2)").Check(testkit.Rows())
+	tk.MustExec("delete from t where id=300")
+	tk.MustQuery("select * from t").Check(testkit.Rows())
+	tk.MustExec("insert into t values  (150, '1960-01-01',20)")
+	tk.MustExec("delete from t where age=20")
+	tk.MustQuery("select * from t").Check(testkit.Rows())
+
+	// Test insert error
+	tk.MustExec("insert into t values  (1, '1960-01-01',20)")
+	_, err := tk.Exec("insert into t values  (1, '1960-01-01',20)")
+	c.Assert(err.Error(), Equals, "[kv:1062]Duplicate entry '1-1960-01-01' for key 'idx'")
+	_, err = tk.Exec("insert into t values  (500, '1960-01-01',20)")
+	c.Assert(err.Error(), Equals, "[table:1526]Table has no partition for value from column_list")
+	_, err = tk.Exec("insert into t values  (250, '2000-01-02',20)")
+	c.Assert(err.Error(), Equals, "[table:1526]Table has no partition for value from column_list")
+
+	// Test drop partition;
+	tk.MustQuery("select * from t").Check(testkit.Rows("1 1960-01-01 20"))
+	tk.MustExec("alter table t drop partition p0;")
+	tk.MustQuery("select * from t").Check(testkit.Rows())
+
+	// Test add partition;
+	_, err = tk.Exec("insert into t values  (500, '1960-01-01',20)")
+	c.Assert(err.Error(), Equals, "[table:1526]Table has no partition for value from column_list")
+	tk.MustExec("alter table t add partition (partition p4 values less than (600,'2000-01-01'));")
+	tk.MustExec("insert into t values  (500, '1960-01-01',20)")
+	tk.MustQuery("select * from t").Check(testkit.Rows("500 1960-01-01 20"))
+	tk.MustExec("admin check table t;")
 }

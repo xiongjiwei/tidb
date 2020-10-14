@@ -1931,14 +1931,14 @@ func checkPartitionByRange(ctx sessionctx.Context, tbInfo *model.TableInfo, s *a
 	}
 
 	// Check for range columns partition.
-	if err := checkRangeColumnsPartitionType(tbInfo); err != nil {
+	if err := checkColumnsPartitionType(tbInfo); err != nil {
 		return err
 	}
 
 	if s != nil {
 		for _, def := range s.Partition.Definitions {
 			exprs := def.Clause.(*ast.PartitionDefinitionClauseLessThan).Exprs
-			if err := checkRangeColumnsTypeAndValuesMatch(ctx, tbInfo, exprs); err != nil {
+			if err := checkColumnsTypeAndValuesMatch(ctx, tbInfo, exprs); err != nil {
 				return err
 			}
 		}
@@ -1947,7 +1947,7 @@ func checkPartitionByRange(ctx sessionctx.Context, tbInfo *model.TableInfo, s *a
 	return checkRangeColumnsPartitionValue(ctx, tbInfo)
 }
 
-// checkPartitionByRange checks validity of a "BY RANGE" partition.
+// checkPartitionByList checks validity of a "BY LIST" partition.
 func checkPartitionByList(ctx sessionctx.Context, tbInfo *model.TableInfo, s *ast.CreateTableStmt) error {
 	pi := tbInfo.Partition
 	if err := checkPartitionNameUnique(pi); err != nil {
@@ -1958,14 +1958,7 @@ func checkPartitionByList(ctx sessionctx.Context, tbInfo *model.TableInfo, s *as
 		return err
 	}
 
-	if len(pi.Definitions) == 0 {
-		return ast.ErrPartitionsMustBeDefined.GenWithStackByArgs("LIST")
-	}
-
-	if len(pi.Columns) != 0 {
-		return fmt.Errorf("not support list columns partition")
-	}
-	if err := checkListPartitionValue(tbInfo); err != nil {
+	if err := checkListPartitionValue(ctx, tbInfo); err != nil {
 		return err
 	}
 
@@ -1973,14 +1966,30 @@ func checkPartitionByList(ctx sessionctx.Context, tbInfo *model.TableInfo, s *as
 	if s == nil {
 		return nil
 	}
-
-	if err := checkPartitionFuncValid(ctx, tbInfo, s.Partition.Expr); err != nil {
+	if len(pi.Columns) == 0 {
+		if err := checkPartitionFuncValid(ctx, tbInfo, s.Partition.Expr); err != nil {
+			return err
+		}
+		return checkPartitionFuncType(ctx, s, tbInfo)
+	}
+	if err := checkColumnsPartitionType(tbInfo); err != nil {
 		return err
 	}
-	return checkPartitionFuncType(ctx, s, tbInfo)
+
+	if len(pi.Columns) > 0 {
+		for _, def := range s.Partition.Definitions {
+			inValues := def.Clause.(*ast.PartitionDefinitionClauseIn).Values
+			for _, vs := range inValues {
+				if err := checkColumnsTypeAndValuesMatch(ctx, tbInfo, vs); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }
 
-func checkRangeColumnsPartitionType(tbInfo *model.TableInfo) error {
+func checkColumnsPartitionType(tbInfo *model.TableInfo) error {
 	for _, col := range tbInfo.Partition.Columns {
 		colInfo := getColumnInfoByName(tbInfo, col.L)
 		if colInfo == nil {
@@ -4564,7 +4573,7 @@ func buildRangePartitionInfo(ctx sessionctx.Context, meta *model.TableInfo, part
 	// For RANGE partition only VALUES LESS THAN should be possible.
 	clause := def.Clause.(*ast.PartitionDefinitionClauseLessThan)
 	if len(part.Columns) > 0 {
-		if err := checkRangeColumnsTypeAndValuesMatch(ctx, meta, clause.Exprs); err != nil {
+		if err := checkColumnsTypeAndValuesMatch(ctx, meta, clause.Exprs); err != nil {
 			return err
 		}
 	}
@@ -4580,19 +4589,28 @@ func buildRangePartitionInfo(ctx sessionctx.Context, meta *model.TableInfo, part
 func buildListPartitionInfo(ctx sessionctx.Context, meta *model.TableInfo, part *model.PartitionInfo, def *ast.PartitionDefinition, piDef *model.PartitionDefinition) error {
 	// For List partition only VALUES IN should be possible.
 	clause := def.Clause.(*ast.PartitionDefinitionClauseIn)
+	if len(part.Columns) > 0 {
+		for _, vs := range clause.Values {
+			if err := checkColumnsTypeAndValuesMatch(ctx, meta, vs); err != nil {
+				return err
+			}
+		}
+	}
 	buf := new(bytes.Buffer)
 	for _, vs := range clause.Values {
-		if len(vs) != 1 {
-			return fmt.Errorf("not support muli-column list partition")
+		inValue := make([]string, 0, len(vs))
+		for i := range vs {
+			buf.Reset()
+			vs[i].Format(buf)
+			inValue = append(inValue, buf.String())
 		}
-		vs[0].Format(buf)
-		piDef.InValues = append(piDef.InValues, buf.String())
+		piDef.InValues = append(piDef.InValues, inValue)
 		buf.Reset()
 	}
 	return nil
 }
 
-func checkRangeColumnsTypeAndValuesMatch(ctx sessionctx.Context, meta *model.TableInfo, exprs []ast.ExprNode) error {
+func checkColumnsTypeAndValuesMatch(ctx sessionctx.Context, meta *model.TableInfo, exprs []ast.ExprNode) error {
 	// Validate() has already checked len(colNames) = len(exprs)
 	// create table ... partition by range columns (cols)
 	// partition p0 values less than (expr)
@@ -4622,6 +4640,46 @@ func checkRangeColumnsTypeAndValuesMatch(ctx sessionctx.Context, meta *model.Tab
 			case types.KindString, types.KindBytes:
 			default:
 				return ErrWrongTypeColumnValue.GenWithStackByArgs()
+			}
+		}
+	}
+	return nil
+}
+
+func formatListPartitionValue(ctx sessionctx.Context, tblInfo *model.TableInfo) error {
+	defs := tblInfo.Partition.Definitions
+	pi := tblInfo.Partition
+	var colTps []*types.FieldType
+	if len(pi.Columns) == 0 {
+		tp := types.NewFieldType(mysql.TypeLonglong)
+		if isRangePartitionColUnsignedBigint(tblInfo.Columns, tblInfo.Partition) {
+			tp.Flag |= mysql.UnsignedFlag
+		}
+		colTps = []*types.FieldType{tp}
+	} else {
+		colTps = make([]*types.FieldType, 0, len(pi.Columns))
+		for _, colName := range pi.Columns {
+			colInfo := findColumnByName(colName.L, tblInfo)
+			if colInfo == nil {
+				return errors.Trace(ErrFieldNotFoundPart)
+			}
+			colTps = append(colTps, &colInfo.FieldType)
+		}
+	}
+	for i := range defs {
+		for j, vs := range defs[i].InValues {
+			for k, v := range vs {
+				if colTps[k].EvalType() != types.ETInt {
+					continue
+				}
+				isUnsigned := mysql.HasUnsignedFlag(colTps[k].Flag)
+				currentRangeValue, isNull, err := getListPartitionValue(ctx, v, isUnsigned)
+				if err != nil {
+					return errors.Trace(err)
+				}
+				if !isNull {
+					defs[i].InValues[j][0] = fmt.Sprintf("%d", currentRangeValue)
+				}
 			}
 		}
 	}

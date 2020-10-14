@@ -697,11 +697,28 @@ func (e *memtableRetriever) setDataFromPartitions(ctx sessionctx.Context, schema
 						avgRowLength = dataLength / rowCount
 					}
 
-					var partitionDesc interface{}
+					var partitionDesc string
 					if table.Partition.Type == model.PartitionTypeRange {
-						partitionDesc = pi.LessThan[0]
+						partitionDesc = strings.Join(pi.LessThan, ",")
 					} else if table.Partition.Type == model.PartitionTypeList {
-						partitionDesc = strings.Join(pi.InValues, ",")
+						if len(pi.InValues) > 0 {
+							if len(pi.InValues[0]) == 1 {
+								for i, vs := range pi.InValues {
+									if i > 0 {
+										partitionDesc += ","
+									}
+									partitionDesc += vs[0]
+								}
+							} else if len(pi.InValues[0]) > 1 {
+								for i, vs := range pi.InValues {
+									if i > 0 {
+										partitionDesc += ","
+									}
+									partitionDesc += ("(" + strings.Join(vs, ",") + ")")
+								}
+
+							}
+						}
 					}
 
 					record := types.MakeDatums(

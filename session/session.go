@@ -71,6 +71,7 @@ import (
 	"github.com/pingcap/tidb/util/timeutil"
 	"github.com/pingcap/tipb/go-binlog"
 	"go.uber.org/zap"
+	"golang.org/x/text/transform"
 )
 
 var (
@@ -1111,6 +1112,21 @@ func (s *session) execute(ctx context.Context, sql string) (recordSets []sqlexec
 	charsetInfo, collation := s.sessionVars.GetCharsetInfo()
 
 	// Step1: Compile query string to abstract syntax trees(ASTs).
+	clientCharset, ok := s.sessionVars.GetSystemVar("character_set_client")
+	if ok && (clientCharset == charset.CharsetGBK || clientCharset == charset.CharsetGB18030) {
+		encoding, _ := charset.Lookup(clientCharset)
+		// However, if `b.tp.Charset` is abnormally set to a wrong charset, we still
+		// return with error.
+		if encoding == nil {
+			logutil.BgLogger().Error("get encoding fails", zap.String("client charset", clientCharset))
+			return nil, errors.New("shouldn't not happened")
+		}
+		var err error
+		sql, _, err = transform.String(encoding.NewDecoder(), sql)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+	}
 	parseStartTime := time.Now()
 	stmtNodes, warns, err := s.ParseSQL(ctx, sql, charsetInfo, collation)
 	if err != nil {
