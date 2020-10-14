@@ -377,8 +377,19 @@ func ValidateSetSystemVar(vars *SessionVars, name string, value string, scope Sc
 		}
 		_, err := parseTimeZone(value)
 		return value, err
-	case ValidatePasswordLength, ValidatePasswordNumberCount:
-		return checkUInt64SystemVar(name, value, 0, math.MaxUint64, vars)
+	case ValidatePasswordLength, ValidatePasswordNumberCount, ValidatePasswordMixedCaseCount, ValidatePasswordSpecialCharCount:
+		return checkUInt64SystemVar(name, value, 0, 64, vars)
+	case ValidatePasswordPolicy:
+		if strings.EqualFold(value, "OFF") || value == "0" {
+			return "OFF", nil
+		} else if strings.EqualFold(value, "LOW") || value == "1" {
+			return "ON", nil
+		} else if strings.EqualFold(value, "MEDIUM") || value == "2" {
+			return "MEDIUM", nil
+		} else if strings.EqualFold(value, "STRONG") || value == "3" {
+			return "STRONG", nil
+		}
+		return value, ErrWrongValueForVar.GenWithStackByArgs(name, value)
 	case WarningCount, ErrorCount:
 		return value, ErrReadOnly.GenWithStackByArgs(name)
 	case EnforceGtidConsistency:

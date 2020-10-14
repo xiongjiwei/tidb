@@ -63,10 +63,7 @@ func buildTablePartitionInfo(ctx sessionctx.Context, s *ast.CreateTableStmt) (*m
 	}
 
 	if s.Partition.Tp == model.PartitionTypeList {
-		// TODO: support list columns partition
-		if len(s.Partition.ColumnNames) == 0 {
-			enable = true
-		}
+		enable = true
 	}
 
 	if !enable {
@@ -161,11 +158,13 @@ func buildListPartitionDefinitions(s *ast.CreateTableStmt, pi *model.PartitionIn
 
 		buf := new(bytes.Buffer)
 		for _, vs := range def.Clause.(*ast.PartitionDefinitionClauseIn).Values {
-			if len(vs) != 1 {
-				return fmt.Errorf("not support muli-column list partition")
+			inValue := make([]string, 0, len(vs))
+			for i := range vs {
+				buf.Reset()
+				vs[i].Format(buf)
+				inValue = append(inValue, buf.String())
 			}
-			vs[0].Format(buf)
-			piDef.InValues = append(piDef.InValues, buf.String())
+			piDef.InValues = append(piDef.InValues, inValue)
 			buf.Reset()
 		}
 		pi.Definitions = append(pi.Definitions, piDef)
@@ -538,44 +537,43 @@ func checkCreatePartitionValue(ctx sessionctx.Context, tblInfo *model.TableInfo)
 	return nil
 }
 
-func checkListPartitionValue(tblInfo *model.TableInfo) error {
+func checkListPartitionValue(ctx sessionctx.Context, tblInfo *model.TableInfo) error {
 	pi := tblInfo.Partition
-	defs := pi.Definitions
-	if len(defs) == 0 {
-		return nil
+	if len(pi.Definitions) == 0 {
+		return ast.ErrPartitionsMustBeDefined.GenWithStackByArgs("LIST")
+	}
+	if err := formatListPartitionValue(ctx, tblInfo); err != nil {
+		return err
 	}
 
-	cols := tblInfo.Columns
-	isUnsignedBigint := isRangePartitionColUnsignedBigint(cols, pi)
-	partitionsValuesMap := make(map[string]map[string]struct{})
-	checkMultipleValue := func(v string) error {
-		for _, otherValueMap := range partitionsValuesMap {
-			if _, ok := otherValueMap[v]; ok {
-				return errors.Trace(ErrMultipleDefConstInListPart)
+	var partitionsValuesMap []map[string]struct{}
+	partitionsValuesMap = append(partitionsValuesMap, make(map[string]struct{}))
+	for i := 1; i < len(pi.Columns); i++ {
+		partitionsValuesMap = append(partitionsValuesMap, make(map[string]struct{}))
+	}
+
+	checkUniqueValue := func(vs []string) error {
+		found := 0
+		for i, v := range vs {
+			m := partitionsValuesMap[i]
+			if _, ok := m[v]; ok {
+				found++
 			}
+			m[v] = struct{}{}
+		}
+		if found == len(vs) {
+			return errors.Trace(ErrMultipleDefConstInListPart)
 		}
 		return nil
 	}
 
 	for i, def := range pi.Definitions {
-		valuesMap := make(map[string]struct{}, len(def.InValues))
-		for j, v := range def.InValues {
-			if isUnsignedBigint {
-				if value, err := strconv.ParseUint(v, 10, 64); err == nil {
-					v = strconv.FormatUint(value, 10)
-				}
-			} else {
-				if value, err := strconv.ParseInt(v, 10, 64); err == nil {
-					v = strconv.FormatInt(value, 10)
-				}
-			}
-			if err := checkMultipleValue(v); err != nil {
+		for j, vs := range def.InValues {
+			if err := checkUniqueValue(vs); err != nil {
 				return err
 			}
-			pi.Definitions[i].InValues[j] = v
-			valuesMap[v] = struct{}{}
+			pi.Definitions[i].InValues[j] = vs
 		}
-		partitionsValuesMap[def.Name.O] = valuesMap
 	}
 	return nil
 }
@@ -608,6 +606,42 @@ func getRangeValue(ctx sessionctx.Context, tblInfo *model.TableInfo, str string,
 			if err2 == nil && !isNull {
 				return res, true, nil
 			}
+		}
+	}
+	return 0, false, ErrNotAllowedTypeInPartition.GenWithStackByArgs(str)
+}
+
+// getListPartitionValue gets an integer/null from the string value.
+// The returned boolean value indicates whether the input string is a null.
+func getListPartitionValue(ctx sessionctx.Context, str string, unsignedBigint bool) (interface{}, bool, error) {
+	if unsignedBigint {
+		if value, err := strconv.ParseUint(str, 10, 64); err == nil {
+			return value, false, nil
+		}
+
+		e, err1 := expression.ParseSimpleExprWithTableInfo(ctx, str, &model.TableInfo{})
+		if err1 != nil {
+			return 0, false, err1
+		}
+		res, isNull, err2 := e.EvalInt(ctx, chunk.Row{})
+		if err2 == nil {
+			return uint64(res), isNull, nil
+		}
+	} else {
+		if value, err := strconv.ParseInt(str, 10, 64); err == nil {
+			return value, false, nil
+		}
+		// The input value maybe not an integer, it could be a constant expression or null.
+		// For example:
+		// PARTITION p0 VALUES IN (TO_SECONDS('2004-01-01'))
+		// PARTITION p0 VALUES IN (NULL)
+		e, err1 := expression.ParseSimpleExprWithTableInfo(ctx, str, &model.TableInfo{})
+		if err1 != nil {
+			return 0, false, err1
+		}
+		res, isNull, err2 := e.EvalInt(ctx, chunk.Row{})
+		if err2 == nil {
+			return res, isNull, nil
 		}
 	}
 	return 0, false, ErrNotAllowedTypeInPartition.GenWithStackByArgs(str)

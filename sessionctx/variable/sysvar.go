@@ -109,8 +109,11 @@ var defaultSysVars = []*SysVar{
 	{ScopeGlobal, "slave_pending_jobs_size_max", "16777216"},
 	{ScopeNone, "innodb_sync_array_size", "1"},
 	{ScopeSession, "rand_seed2", ""},
-	{ScopeGlobal, ValidatePasswordCheckUserName, "0"},
+	{ScopeGlobal, ValidatePasswordCheckUserName, "off"},
+	{ScopeGlobal, ValidatePasswordPolicy, "off"},
 	{ScopeGlobal, "validate_password_number_count", "1"},
+	{ScopeGlobal, "validate_password_mixed_case_count", "1"},
+	{ScopeGlobal, "validate_password_special_char_count", "1"},
 	{ScopeSession, "gtid_next", ""},
 	{ScopeGlobal | ScopeSession, SQLSelectLimit, "18446744073709551615"},
 	{ScopeGlobal, "ndb_show_foreign_key_mock_tables", ""},
@@ -833,6 +836,10 @@ const (
 	WaitTimeout = "wait_timeout"
 	// ValidatePasswordNumberCount is the name of 'validate_password_number_count' system variable.
 	ValidatePasswordNumberCount = "validate_password_number_count"
+	// ValidatePasswordMixedCaseCount is the name of 'validate_password_mixed_case_count' system variable.
+	ValidatePasswordMixedCaseCount = "validate_password_mixed_case_count"
+	// ValidatePasswordSpecialCharCount is the name of 'validate_password_special_char_count' system variable.
+	ValidatePasswordSpecialCharCount = "validate_password_special_char_count"
 	// ValidatePasswordLength is the name of 'validate_password_length' system variable.
 	ValidatePasswordLength = "validate_password_length"
 	// PluginDir is the name of 'plugin_dir' system variable.
@@ -986,6 +993,8 @@ const (
 	MaxLoginAttempts = "max_login_attempts"
 	// LoginBlockInterval is the name for 'login_block_interval' system variable.
 	LoginBlockInterval = "login_block_interval"
+	// ValidatePasswordPolicy is the name for 'validate_password' system variable.
+	ValidatePasswordPolicy = "validate_password_policy"
 )
 
 // GlobalVarAccessor is the interface for accessing global scope system and status variables.
