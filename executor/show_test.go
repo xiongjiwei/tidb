@@ -697,6 +697,35 @@ func (s *testSuite5) TestShowCreateTable(c *C) {
 			"  PARTITION `p3` VALUES IN (7,8,15,16,NULL)\n"+
 			")"))
 
+	// Test show range multi-columns partition table
+	tk.MustExec(`DROP TABLE IF EXISTS t`)
+	tk.MustExec(
+		`CREATE TABLE t(
+		    a INT,
+		    b INT,
+		    c CHAR(3),
+		    d BIGINT
+		)
+		PARTITION BY RANGE COLUMNS(a,d,c) (
+		    PARTITION p0 VALUES LESS THAN (5,10,'ggg'),
+		    PARTITION p1 VALUES LESS THAN (10,20,'mmm'),
+		    PARTITION p2 VALUES LESS THAN (15,30,'sss'),
+		    PARTITION p3 VALUES LESS THAN (MAXVALUE,MAXVALUE,MAXVALUE)
+		);`)
+	tk.MustQuery(`show create table t`).Check(testutil.RowsWithSep("|",
+		"t CREATE TABLE `t` (\n"+
+			"  `a` int(11) DEFAULT NULL,\n"+
+			"  `b` int(11) DEFAULT NULL,\n"+
+			"  `c` char(3) DEFAULT NULL,\n"+
+			"  `d` bigint(20) DEFAULT NULL\n"+
+			") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin\n"+
+			"PARTITION BY RANGE COLUMNS(a,d,c) (\n"+
+			"  PARTITION `p0` VALUES LESS THAN (5,10,\"ggg\"),\n"+
+			"  PARTITION `p1` VALUES LESS THAN (10,20,\"mmm\"),\n"+
+			"  PARTITION `p2` VALUES LESS THAN (15,30,\"sss\"),\n"+
+			"  PARTITION `p3` VALUES LESS THAN (MAXVALUE,MAXVALUE,MAXVALUE)\n"+
+			")"))
+
 	// Test show list partition table
 	tk.MustExec(`DROP TABLE IF EXISTS t`)
 	tk.MustExec(`create table t (id int, name varchar(10), unique index idx (id)) partition by list  (id) (

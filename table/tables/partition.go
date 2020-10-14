@@ -119,30 +119,24 @@ type PartitionExpr struct {
 	InValues []expression.Expression
 }
 
-// rangePartitionString returns the partition string for a range typed partition.
-func rangePartitionString(pi *model.PartitionInfo) string {
-	// partition by range expr
-	if len(pi.Columns) == 0 {
-		return pi.Expr
-	}
-
-	// partition by range columns (c1)
-	if len(pi.Columns) == 1 {
-		return pi.Columns[0].L
-	}
-
-	// partition by range columns (c1, c2, ...)
-	panic("create table assert len(columns) = 1")
-}
-
 func generateRangePartitionExpr(ctx sessionctx.Context, pi *model.PartitionInfo,
 	columns []*expression.Column, names types.NameSlice) (*PartitionExpr, error) {
 	// The caller should assure partition info is not nil.
+	var partStr string
+	if len(pi.Columns) == 0 {
+		// partition by range expr
+		partStr = pi.Expr
+	} else if len(pi.Columns) == 1 {
+		// partition by range columns (c1)
+		partStr = pi.Columns[0].L
+	} else {
+		// partition by range multi-columns, such as columns (c1,c2)
+		return generateRangeColumnsPartitionExpr(ctx, pi, columns, names)
+	}
 	partitionPruneExprs := make([]expression.Expression, 0, len(pi.Definitions))
 	locateExprs := make([]expression.Expression, 0, len(pi.Definitions))
 	var buf bytes.Buffer
 	schema := expression.NewSchema(columns...)
-	partStr := rangePartitionString(pi)
 	for i := 0; i < len(pi.Definitions); i++ {
 
 		if strings.EqualFold(pi.Definitions[i].LessThan[0], "MAXVALUE") {
@@ -165,6 +159,68 @@ func generateRangePartitionExpr(ctx sessionctx.Context, pi *model.PartitionInfo,
 		} else {
 			// NULL will locate in the first partition, so its expression is (expr < value or expr is null).
 			fmt.Fprintf(&buf, " or ((%s) is null)", partStr)
+		}
+
+		exprs, err = expression.ParseSimpleExprsWithNames(ctx, buf.String(), schema, names)
+		if err != nil {
+			// If it got an error here, ddl may hang forever, so this error log is important.
+			logutil.BgLogger().Error("wrong table partition expression", zap.String("expression", buf.String()), zap.Error(err))
+			return nil, errors.Trace(err)
+		}
+		// Get a hash code in advance to prevent data race afterwards.
+		exprs[0].HashCode(ctx.GetSessionVars().StmtCtx)
+		partitionPruneExprs = append(partitionPruneExprs, exprs[0])
+		buf.Reset()
+	}
+	return &PartitionExpr{
+		UpperBounds: locateExprs,
+	}, nil
+}
+
+func generateRangeColumnsPartitionExpr(ctx sessionctx.Context, pi *model.PartitionInfo,
+	columns []*expression.Column, names types.NameSlice) (*PartitionExpr, error) {
+	// The caller should assure partition info is not nil.
+	partitionPruneExprs := make([]expression.Expression, 0, len(pi.Definitions))
+	locateExprs := make([]expression.Expression, 0, len(pi.Definitions))
+	var buf bytes.Buffer
+	schema := expression.NewSchema(columns...)
+	for i, def := range pi.Definitions {
+		for j, lessThan := range def.LessThan {
+			if strings.EqualFold(lessThan, "MAXVALUE") {
+				// Expr less than maxvalue is always true.
+				if buf.Len() == 0 {
+					buf.WriteString("true")
+				}
+				break
+			} else {
+				if buf.Len() > 0 {
+					buf.WriteString(" and ")
+				}
+				fmt.Fprintf(&buf, "%s < %s", pi.Columns[j], lessThan)
+			}
+		}
+
+		exprs, err := expression.ParseSimpleExprsWithNames(ctx, buf.String(), schema, names)
+		if err != nil {
+			// If it got an error here, ddl may hang forever, so this error log is important.
+			logutil.BgLogger().Error("wrong table partition expression", zap.String("expression", buf.String()), zap.Error(err))
+			return nil, errors.Trace(err)
+		}
+		locateExprs = append(locateExprs, exprs[0])
+
+		if i > 0 {
+			preDef := pi.Definitions[i-1]
+			for j, lessThan := range def.LessThan {
+				if strings.EqualFold(lessThan, "MAXVALUE") || strings.EqualFold(preDef.LessThan[j], "MAXVALUE") {
+					break
+				}
+				fmt.Fprintf(&buf, " and %s >= %s", pi.Columns[j], preDef.LessThan[j])
+			}
+		} else {
+			// NULL will locate in the first partition, so its expression is (expr < value or expr is null).
+			for _, col := range pi.Columns {
+				fmt.Fprintf(&buf, " or (%s is null)", col.L)
+			}
 		}
 
 		exprs, err = expression.ParseSimpleExprsWithNames(ctx, buf.String(), schema, names)

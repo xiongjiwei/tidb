@@ -54,14 +54,7 @@ func buildTablePartitionInfo(ctx sessionctx.Context, s *ast.CreateTableStmt) (*m
 	var enable bool
 	// When tidb_enable_table_partition is 'on' or 'auto'.
 	if s.Partition.Tp == model.PartitionTypeRange {
-		// Partition by range expression is enabled by default.
-		if s.Partition.ColumnNames == nil {
-			enable = true
-		}
-		// Partition by range columns and just one column.
-		if len(s.Partition.ColumnNames) == 1 {
-			enable = true
-		}
+		enable = true
 	}
 	// Partition by hash is enabled by default.
 	// Note that linear hash is not enabled.
@@ -91,11 +84,6 @@ func buildTablePartitionInfo(ctx sessionctx.Context, s *ast.CreateTableStmt) (*m
 		}
 		pi.Expr = buf.String()
 	} else if s.Partition.ColumnNames != nil {
-		// TODO: Support multiple columns for 'PARTITION BY RANGE COLUMNS'.
-		if s.Partition.Tp == model.PartitionTypeRange && len(s.Partition.ColumnNames) != 1 {
-			pi.Enable = false
-			ctx.GetSessionVars().StmtCtx.AppendWarning(ErrUnsupportedPartitionByRangeColumns)
-		}
 		pi.Columns = make([]model.CIStr, 0, len(s.Partition.ColumnNames))
 		for _, cn := range s.Partition.ColumnNames {
 			pi.Columns = append(pi.Columns, cn.Name)
@@ -146,7 +134,6 @@ func buildRangePartitionDefinitions(ctx sessionctx.Context, s *ast.CreateTableSt
 		}
 
 		buf := new(bytes.Buffer)
-		// Range columns partitions support multi-column partitions.
 		for _, expr := range def.Clause.(*ast.PartitionDefinitionClauseLessThan).Exprs {
 			expr.Format(buf)
 			piDef.LessThan = append(piDef.LessThan, buf.String())
