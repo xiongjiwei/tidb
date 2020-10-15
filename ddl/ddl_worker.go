@@ -661,6 +661,8 @@ func (w *worker) runDDLJob(d *ddlCtx, t *meta.Meta, job *model.Job) (ver int64, 
 		ver, err = onDropCheckConstraint(t, job)
 	case model.ActionAlterCheckConstraint:
 		ver, err = w.onAlterCheckConstraint(t, job)
+	case model.ActionAlterSequence:
+		ver, err = onAlterSequence(t, job)
 	default:
 		// Invalid job, cancel it.
 		job.State = model.JobStateCancelled

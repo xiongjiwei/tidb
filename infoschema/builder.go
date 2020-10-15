@@ -77,7 +77,9 @@ func (b *Builder) ApplyDiff(m *meta.Meta, diff *model.SchemaDiff) ([]int64, erro
 	// We try to reuse the old allocator, so the cached auto ID can be reused.
 	var allocs autoid.Allocators
 	if tableIDIsValid(oldTableID) {
-		if oldTableID == newTableID && diff.Type != model.ActionRenameTable {
+		if oldTableID == newTableID && diff.Type != model.ActionRenameTable &&
+			// Alter sequence will change the sequence info in the allocator, so the old allocator is not valid any more.
+			diff.Type != model.ActionAlterSequence {
 			oldAllocs, _ := b.is.AllocByID(oldTableID)
 			allocs = filterAllocators(diff, oldAllocs)
 		}
