@@ -688,6 +688,26 @@ func (e *SimpleExec) executeCreateUser(ctx context.Context, s *ast.CreateUserStm
 		return err
 	}
 
+	expire, interval := false, int64(0)
+	for _, opt := range s.PasswordOrLockOptions {
+		if opt.Type == ast.PasswordExpire || opt.Type == ast.PasswordExpireDefault {
+			expire = true
+			intervalStr, err := variable.GetSessionSystemVar(e.ctx.GetSessionVars(), "default_password_lifetime")
+			if err != nil {
+				return err
+			}
+			interval, err = strconv.ParseInt(intervalStr, 10, 64)
+			if err != nil {
+				return err
+			}
+			break
+		} else if opt.Type == ast.PasswordExpireInterval {
+			expire = true
+			interval = opt.Count
+			break
+		}
+	}
+
 	users := make([]string, 0, len(s.Specs))
 	privs := make([]string, 0, len(s.Specs))
 	for _, spec := range s.Specs {
@@ -725,6 +745,9 @@ func (e *SimpleExec) executeCreateUser(ctx context.Context, s *ast.CreateUserStm
 			return errors.Trace(ErrPasswordFormat)
 		}
 		user := fmt.Sprintf(`('%s', '%s', '%s')`, spec.User.Hostname, spec.User.Username, pwd)
+		if expire {
+			user = fmt.Sprintf(`('%s', '%s', '%s', 'Y', current_timestamp(), %d)`, spec.User.Hostname, spec.User.Username, pwd, interval)
+		}
 		if s.IsCreateRole {
 			user = fmt.Sprintf(`('%s', '%s', '%s', 'Y')`, spec.User.Hostname, spec.User.Username, pwd)
 		}
@@ -740,6 +763,9 @@ func (e *SimpleExec) executeCreateUser(ctx context.Context, s *ast.CreateUserStm
 	}
 
 	sql := fmt.Sprintf(`INSERT INTO %s.%s (Host, User, authentication_string) VALUES %s;`, mysql.SystemDB, mysql.UserTable, strings.Join(users, ", "))
+	if expire {
+		sql = fmt.Sprintf(`INSERT INTO %s.%s (Host, User, authentication_string, password_expired, password_last_changed, password_lifetime) VALUES %s;`, mysql.SystemDB, mysql.UserTable, strings.Join(users, ", "))
+	}
 	if s.IsCreateRole {
 		sql = fmt.Sprintf(`INSERT INTO %s.%s (Host, User, authentication_string, Account_locked) VALUES %s;`, mysql.SystemDB, mysql.UserTable, strings.Join(users, ", "))
 	}
@@ -796,6 +822,26 @@ func (e *SimpleExec) executeAlterUser(s *ast.AlterUserStmt) error {
 		return err
 	}
 
+	expire, interval, never := false, int64(0), false
+	for _, opt := range s.PasswordOrLockOptions {
+		if opt.Type == ast.PasswordExpire || opt.Type == ast.PasswordExpireDefault {
+			expire = true
+			intervalStr, err := variable.GetSessionSystemVar(e.ctx.GetSessionVars(), "default_password_lifetime")
+			if err != nil {
+				return err
+			}
+			interval, err = strconv.ParseInt(intervalStr, 10, 64)
+			if err != nil {
+				return err
+			}
+			break
+		} else if opt.Type == ast.PasswordExpireInterval {
+			expire = true
+			interval = opt.Count
+			break
+		}
+	}
+
 	failedUsers := make([]string, 0, len(s.Specs))
 	for _, spec := range s.Specs {
 		exists, err := userExists(e.ctx, spec.User.Username, spec.User.Hostname)
@@ -823,6 +869,23 @@ func (e *SimpleExec) executeAlterUser(s *ast.AlterUserStmt) error {
 		}
 		sql := fmt.Sprintf(`UPDATE %s.%s SET authentication_string = '%s' WHERE Host = '%s' and User = '%s';`,
 			mysql.SystemDB, mysql.UserTable, pwd, spec.User.Hostname, spec.User.Username)
+		if expire || never {
+			var opt string
+			if never {
+				opt = "N"
+			} else {
+				opt = "Y"
+			}
+			if spec.AuthOpt != nil {
+				sql = fmt.Sprintf(`UPDATE %s.%s SET authentication_string = '%s', password_expired = '%s',
+					password_last_changed = current_timestamp(), password_lifetime=%d  WHERE Host = '%s' and User = '%s';`,
+					mysql.SystemDB, mysql.UserTable, pwd, opt, interval, spec.User.Hostname, spec.User.Username)
+			} else {
+				sql = fmt.Sprintf(`UPDATE %s.%s SET password_expired = '%s',
+					password_last_changed = current_timestamp(), password_lifetime=%d  WHERE Host = '%s' and User = '%s';`,
+					mysql.SystemDB, mysql.UserTable, opt, interval, spec.User.Hostname, spec.User.Username)
+			}
+		}
 		_, _, err = e.ctx.(sqlexec.RestrictedSQLExecutor).ExecRestrictedSQL(sql)
 		if err != nil {
 			failedUsers = append(failedUsers, spec.User.String())

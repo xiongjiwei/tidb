@@ -123,6 +123,19 @@ func (p *UserPrivileges) RequestVerificationWithUser(db, table, column string, p
 	return mysqlPriv.RequestVerification(nil, user.Username, user.Hostname, db, table, column, priv)
 }
 
+func (p *UserPrivileges) CheckPwdExpire() bool {
+	if SkipWithGrant {
+		return true
+	}
+
+	if p.user == "" && p.host == "" {
+		return true
+	}
+
+	mysqlPriv := p.Handle.Get()
+	return mysqlPriv.CheckPwdExpire(p.user, p.host)
+}
+
 // GetEncodedPassword implements the Manager interface.
 func (p *UserPrivileges) GetEncodedPassword(user, host string) string {
 	mysqlPriv := p.Handle.Get()

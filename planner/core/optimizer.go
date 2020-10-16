@@ -104,6 +104,19 @@ func CheckPrivilege(activeRoles []*auth.RoleIdentity, pm privilege.Manager, vs [
 	return nil
 }
 
+// CheckPwdExpire ...
+func CheckPwdExpire(pm privilege.Manager, node ast.Node) error {
+	switch node.(type) {
+	case *ast.SetPwdStmt, *ast.AlterUserStmt:
+		return nil
+	default:
+		if !pm.CheckPwdExpire() {
+			return ErrMustChangePassword
+		}
+	}
+	return nil
+}
+
 // CheckTableLock checks the table lock.
 func CheckTableLock(ctx sessionctx.Context, is infoschema.InfoSchema, vs []visitInfo) error {
 	if !config.TableLockEnabled() {

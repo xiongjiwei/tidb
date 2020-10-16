@@ -73,6 +73,9 @@ type baseRecord struct {
 type UserRecord struct {
 	baseRecord
 
+	pwdExpired           bool
+	lastChangePws        time.Time
+	expireDuration       int
 	AuthenticationString string
 	Privileges           mysql.PrivilegeType
 	AccountLocked        bool // A role record when this field is true
@@ -86,6 +89,15 @@ func NewUserRecord(host, user string) UserRecord {
 			User: user,
 		},
 	}
+}
+
+// CheckPasswordExpired check whether password expired.
+func (u *UserRecord) CheckPasswordExpired() bool {
+	if u.pwdExpired {
+		due := u.lastChangePws.AddDate(0, 0, u.expireDuration)
+		return due.After(time.Now())
+	}
+	return true
 }
 
 type globalPrivRecord struct {
@@ -238,6 +250,14 @@ type MySQLPrivilege struct {
 	RoleGraph     map[string]roleGraphEdgesTable
 	PwdErrorCnt   map[string]int
 	BlackList     map[string][]blackListItem
+}
+
+func (p *MySQLPrivilege) CheckPwdExpire(u, h string) bool {
+	rec := p.matchUser(u, h)
+	if rec != nil {
+		return rec.CheckPasswordExpired()
+	}
+	return true
 }
 
 // FindAllRole is used to find all roles grant to this user.
@@ -434,7 +454,7 @@ func (p *MySQLPrivilege) LoadUserTable(ctx sessionctx.Context) error {
 	for _, v := range mysql.Priv2UserCol {
 		userPrivCols = append(userPrivCols, v)
 	}
-	query := fmt.Sprintf("select HIGH_PRIORITY Host,User,authentication_string,%s,account_locked from mysql.user;", strings.Join(userPrivCols, ", "))
+	query := fmt.Sprintf("select HIGH_PRIORITY Host,User,authentication_string,%s,password_expired,password_last_changed,password_lifetime,account_locked from mysql.user;", strings.Join(userPrivCols, ", "))
 	err := p.loadTable(ctx, query, p.decodeUserTableRow)
 	if err != nil {
 		return errors.Trace(err)
@@ -699,7 +719,23 @@ func (p *MySQLPrivilege) decodeUserTableRow(row chunk.Row, fs []*ast.ResultField
 			if row.GetEnum(i).String() == "Y" {
 				value.AccountLocked = true
 			}
-		case f.Column.Tp == mysql.TypeEnum:
+		case f.ColumnAsName.L == "password_expired":
+			if  row.GetEnum(i).String() == "Y" {
+				value.pwdExpired = true
+			}
+		case f.ColumnAsName.L == "password_lifetime":
+			if !row.IsNull(i) {
+				value.expireDuration = int(row.GetUint64(i))
+			}
+		case f.ColumnAsName.L == "password_last_changed":
+			if !row.IsNull(i) {
+				t, err := row.GetTime(i).GoTime(time.Local)
+				if err != nil {
+					return err
+				}
+				value.lastChangePws = t
+			}
+		case f.Column.Tp == mysql.TypeEnum && f.ColumnAsName.L != "password_expired":
 			if row.GetEnum(i).String() != "Y" {
 				continue
 			}

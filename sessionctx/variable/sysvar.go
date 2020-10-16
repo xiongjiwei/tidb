@@ -257,7 +257,7 @@ var defaultSysVars = []*SysVar{
 	{ScopeNone, "performance_schema_max_file_classes", "50"},
 	{ScopeGlobal, "expire_logs_days", "0"},
 	{ScopeGlobal | ScopeSession, BinlogRowQueryLogEvents, "0"},
-	{ScopeGlobal, "default_password_lifetime", ""},
+	{ScopeGlobal, "default_password_lifetime", "90"},
 	{ScopeNone, "pid_file", "/usr/local/mysql/data/localhost.pid"},
 	{ScopeNone, "innodb_undo_tablespaces", "0"},
 	{ScopeGlobal, InnodbStatusOutputLocks, "0"},

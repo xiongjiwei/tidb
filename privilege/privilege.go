@@ -75,6 +75,8 @@ type Manager interface {
 
 	// IncFailTimer is used to increase lock timer.
 	IncFailTimer(ctx sessionctx.Context, user, host string)
+	// CheckPwdExpire check whether password expired.
+	CheckPwdExpire() bool
 }
 
 const key keyType = 0
