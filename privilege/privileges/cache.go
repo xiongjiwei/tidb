@@ -76,6 +76,7 @@ type UserRecord struct {
 	pwdExpired           bool
 	lastChangePws        time.Time
 	expireDuration       int
+	usedPwd              []string
 	AuthenticationString string
 	Privileges           mysql.PrivilegeType
 	AccountLocked        bool // A role record when this field is true
@@ -360,6 +361,35 @@ func (p *MySQLPrivilege) FindRole(user string, host string, role *auth.RoleIdent
 	return false
 }
 
+// AddNewPwd ...
+func (p *MySQLPrivilege) AddNewPwd(user string, host string, pwd string) string {
+	rec := p.matchUser(user, host)
+	if rec.usedPwd == nil {
+		rec.usedPwd = make([]string, 0, 5)
+	}
+	fmt.Println(rec.usedPwd)
+	rec.usedPwd = append(rec.usedPwd, pwd)
+	if len(rec.usedPwd) > 5 {
+		rec.usedPwd = rec.usedPwd[1:]
+	}
+	fmt.Println(strings.Join(rec.usedPwd, ","))
+	return strings.Join(rec.usedPwd, ",")
+}
+
+// CheckOldPwd ...
+func (p *MySQLPrivilege) CheckOldPwd(user string, host string, pwd string) bool {
+	rec := p.matchUser(user, host)
+	if rec.usedPwd == nil {
+		return true
+	}
+	for _, used := range rec.usedPwd {
+		if used == pwd {
+			return false
+		}
+	}
+	return true
+}
+
 // LoadAll loads the tables from database to memory.
 func (p *MySQLPrivilege) LoadAll(ctx sessionctx.Context) error {
 	if p.PwdErrorCnt == nil {
@@ -454,7 +484,7 @@ func (p *MySQLPrivilege) LoadUserTable(ctx sessionctx.Context) error {
 	for _, v := range mysql.Priv2UserCol {
 		userPrivCols = append(userPrivCols, v)
 	}
-	query := fmt.Sprintf("select HIGH_PRIORITY Host,User,authentication_string,%s,password_expired,password_last_changed,password_lifetime,account_locked from mysql.user;", strings.Join(userPrivCols, ", "))
+	query := fmt.Sprintf("select HIGH_PRIORITY Host,User,authentication_string,%s,password_expired,password_last_changed,password_lifetime,account_locked,used_password from mysql.user;", strings.Join(userPrivCols, ", "))
 	err := p.loadTable(ctx, query, p.decodeUserTableRow)
 	if err != nil {
 		return errors.Trace(err)
@@ -734,6 +764,11 @@ func (p *MySQLPrivilege) decodeUserTableRow(row chunk.Row, fs []*ast.ResultField
 					return err
 				}
 				value.lastChangePws = t
+			}
+		case f.ColumnAsName.L == "used_password":
+			if !row.IsNull(i) {
+				str := row.GetString(i)
+				value.usedPwd = strings.Split(str, ",")
 			}
 		case f.Column.Tp == mysql.TypeEnum && f.ColumnAsName.L != "password_expired":
 			if row.GetEnum(i).String() != "Y" {

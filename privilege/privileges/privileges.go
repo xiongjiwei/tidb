@@ -178,6 +178,26 @@ func (p *UserPrivileges) GetAuthWithoutVerification(user, host string) (u string
 	return
 }
 
+// AddNewPwd ...
+func (p *UserPrivileges) AddNewPwd(user string, host string, pwd string) string {
+	if SkipWithGrant {
+		return ""
+	}
+
+	mysqlPriv := p.Handle.Get()
+	return mysqlPriv.AddNewPwd(user, host, pwd)
+}
+
+// CheckOldPwd ...
+func (p *UserPrivileges) CheckOldPwd(user string, host string, pwd string) bool {
+	if SkipWithGrant {
+		return true
+	}
+
+	mysqlPriv := p.Handle.Get()
+	return mysqlPriv.CheckOldPwd(user, host, pwd)
+}
+
 // CheckAccountLocked return if the account has been locked.
 func (p *UserPrivileges) CheckAccountLocked(ctx sessionctx.Context, user, host string) bool {
 	if SkipWithGrant {

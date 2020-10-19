@@ -77,6 +77,10 @@ type Manager interface {
 	IncFailTimer(ctx sessionctx.Context, user, host string)
 	// CheckPwdExpire check whether password expired.
 	CheckPwdExpire() bool
+	// CheckOldPwd ...
+	CheckOldPwd(user string, host string, pwd string) bool
+	// AddNewPwd ...
+	AddNewPwd(user string, host string, pwd string) string
 }
 
 const key keyType = 0

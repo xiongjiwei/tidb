@@ -867,8 +867,12 @@ func (e *SimpleExec) executeAlterUser(s *ast.AlterUserStmt) error {
 				pwd = auth.EncodePassword(spec.AuthOpt.HashString)
 			}
 		}
-		sql := fmt.Sprintf(`UPDATE %s.%s SET authentication_string = '%s' WHERE Host = '%s' and User = '%s';`,
-			mysql.SystemDB, mysql.UserTable, pwd, spec.User.Hostname, spec.User.Username)
+		checker := privilege.GetPrivilegeManager(e.ctx)
+		if !checker.CheckOldPwd(spec.User.Username, spec.User.Hostname, pwd) {
+			return errors.New("can not use old password")
+		}
+		sql := fmt.Sprintf(`UPDATE %s.%s SET authentication_string = '%s', used_password='%s' WHERE Host = '%s' and User = '%s';`,
+			mysql.SystemDB, mysql.UserTable, pwd, checker.AddNewPwd(spec.User.Username, spec.User.Hostname, pwd), spec.User.Hostname, spec.User.Username)
 		if expire || never {
 			var opt string
 			if never {
@@ -882,8 +886,8 @@ func (e *SimpleExec) executeAlterUser(s *ast.AlterUserStmt) error {
 					mysql.SystemDB, mysql.UserTable, pwd, opt, interval, spec.User.Hostname, spec.User.Username)
 			} else {
 				sql = fmt.Sprintf(`UPDATE %s.%s SET password_expired = '%s',
-					password_last_changed = current_timestamp(), password_lifetime=%d  WHERE Host = '%s' and User = '%s';`,
-					mysql.SystemDB, mysql.UserTable, opt, interval, spec.User.Hostname, spec.User.Username)
+					password_last_changed = current_timestamp(), password_lifetime=%d, used_password='%s' WHERE Host = '%s' and User = '%s';`,
+					mysql.SystemDB, mysql.UserTable, opt, interval, checker.AddNewPwd(spec.User.Username, spec.User.Hostname, pwd), spec.User.Hostname, spec.User.Username)
 			}
 		}
 		_, _, err = e.ctx.(sqlexec.RestrictedSQLExecutor).ExecRestrictedSQL(sql)
@@ -1143,9 +1147,13 @@ func (e *SimpleExec) executeSetPwd(s *ast.SetPwdStmt) error {
 	if !checkPasswordPolicy(e.ctx, s.Password, s.User.Username) {
 		return privileges.ErrNotValidPassword.FastGenByArgs()
 	}
+	checker := privilege.GetPrivilegeManager(e.ctx)
+	if !checker.CheckOldPwd(u, h, auth.EncodePassword(s.Password)) {
+		return errors.New("can not use old password")
+	}
 
 	// update mysql.user
-	sql := fmt.Sprintf(`UPDATE %s.%s SET authentication_string='%s' WHERE User='%s' AND Host='%s';`, mysql.SystemDB, mysql.UserTable, auth.EncodePassword(s.Password), u, h)
+	sql := fmt.Sprintf(`UPDATE %s.%s SET authentication_string='%s', used_password='%s' WHERE User='%s' AND Host='%s';`, mysql.SystemDB, mysql.UserTable, auth.EncodePassword(s.Password), checker.AddNewPwd(u, h, auth.EncodePassword(s.Password)), u, h)
 	_, _, err = e.ctx.(sqlexec.RestrictedSQLExecutor).ExecRestrictedSQL(sql)
 	domain.GetDomain(e.ctx).NotifyUpdatePrivilege(e.ctx)
 	return err
