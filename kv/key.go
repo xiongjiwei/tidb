@@ -16,8 +16,8 @@ package kv
 import (
 	"bytes"
 	"encoding/hex"
-	"strconv"
 	"runtime/debug"
+	"strconv"
 
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/codec"

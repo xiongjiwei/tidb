@@ -367,12 +367,10 @@ func (p *MySQLPrivilege) AddNewPwd(user string, host string, pwd string) string 
 	if rec.usedPwd == nil {
 		rec.usedPwd = make([]string, 0, 5)
 	}
-	fmt.Println(rec.usedPwd)
 	rec.usedPwd = append(rec.usedPwd, pwd)
 	if len(rec.usedPwd) > 5 {
 		rec.usedPwd = rec.usedPwd[1:]
 	}
-	fmt.Println(strings.Join(rec.usedPwd, ","))
 	return strings.Join(rec.usedPwd, ",")
 }
 
@@ -750,7 +748,7 @@ func (p *MySQLPrivilege) decodeUserTableRow(row chunk.Row, fs []*ast.ResultField
 				value.AccountLocked = true
 			}
 		case f.ColumnAsName.L == "password_expired":
-			if  row.GetEnum(i).String() == "Y" {
+			if row.GetEnum(i).String() == "Y" {
 				value.pwdExpired = true
 			}
 		case f.ColumnAsName.L == "password_lifetime":
