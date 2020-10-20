@@ -23,9 +23,15 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/parser/ast"
+	"github.com/pingcap/parser/charset"
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/chunk"
+	"github.com/pingcap/tidb/util/hack"
+	"github.com/pingcap/tidb/util/logutil"
+	"go.uber.org/zap"
+	"golang.org/x/text/encoding"
+	"golang.org/x/text/transform"
 )
 
 // SelectIntoExec represents a SelectInto executor.
@@ -83,6 +89,18 @@ func (s *SelectIntoExec) considerEncloseOpt(et types.EvalType) bool {
 }
 
 func (s *SelectIntoExec) dumpToOutfile() error {
+	var encoder *encoding.Encoder
+	resultCharset, ok := s.ctx.GetSessionVars().GetSystemVar("character_set_results")
+	if ok && (resultCharset == charset.CharsetGBK || resultCharset == charset.CharsetGB18030) {
+		e, _ := charset.Lookup(resultCharset)
+		// However, if `b.tp.Charset` is abnormally set to a wrong charset, we still
+		// return with error.
+		if e == nil {
+			logutil.BgLogger().Error("get encoding fails", zap.String("client charset", resultCharset))
+			errors.New("shouldn't not happened")
+		}
+		encoder = e.NewEncoder()
+	}
 	lineTerm := "\n"
 	if s.intoOpt.LinesInfo.Terminated != "" {
 		lineTerm = s.intoOpt.LinesInfo.Terminated
@@ -133,7 +151,15 @@ func (s *SelectIntoExec) dumpToOutfile() error {
 			case types.ETDecimal:
 				s.lineBuf = append(s.lineBuf, row.GetMyDecimal(j).String()...)
 			case types.ETString:
-				s.lineBuf = append(s.lineBuf, row.GetBytes(j)...)
+				if encoder != nil {
+					str, _, err := transform.String(encoder, row.GetString(i))
+					if err != nil {
+						return errors.Trace(err)
+					}
+					s.lineBuf = append(s.lineBuf, hack.Slice(str)...)
+				} else {
+					s.lineBuf = append(s.lineBuf, row.GetBytes(j)...)
+				}
 			case types.ETDatetime:
 				s.lineBuf = append(s.lineBuf, row.GetTime(j).String()...)
 			case types.ETTimestamp:
