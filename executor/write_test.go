@@ -2844,6 +2844,18 @@ func (s *testSuite4) TestWriteListPartitionTable(c *C) {
 	tk.MustQuery("select * from t order by id").Check(testkit.Rows("<nil> <nil>", "1 a", "2 b", "4 d", "7 f"))
 	tk.MustExec("delete from t partition (p3,p2)")
 	tk.MustQuery("select * from t order by id").Check(testkit.Rows("1 a", "2 b"))
+
+	// Test for default list partition.
+	tk.MustExec("drop table if exists t")
+	tk.MustExec(`create table t (id int, name varchar(10), unique index idx (id)) partition by list  (id) (
+    	partition p0 values (3,5,6,9,17),
+    	partition p1 values (1,2,10,11,19,20),
+    	partition p2 values (4,12,13,14,18),
+    	partition p4 values (default)
+	);`)
+	tk.MustExec("insert into t values (100, 'd')")
+	_, err = tk.Exec("insert into t values (100, 'd')")
+	c.Assert(err.Error(), Equals, "[kv:1062]Duplicate entry '100' for key 'idx'")
 }
 
 func (s *testSuite4) TestWriteListColumnsPartitionTable(c *C) {

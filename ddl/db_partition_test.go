@@ -563,13 +563,12 @@ func (s *testIntegrationSuite1) TestCreateTableWithListPartition(c *C) {
 			ddl.ErrMultipleDefConstInListPart,
 		},
 		{
-			`create table t1 (id int key, name varchar(10), unique index idx(name)) partition by list  (id) (
-				    partition p0 values in (3,5,6,9,17),
-				    partition p1 values in (1,2,10,11,19,20),
-				    partition p2 values in (4,12,13,14,18),
-				    partition p3 values in (7,8,15,16)
-				);`,
-			ddl.ErrUniqueKeyNeedAllFieldsInPf,
+			"create table t (a int) partition by list (a) (partition p0 values in (default), partition p1 values in (1));",
+			ddl.ErrMultipleDefConstInListPart,
+		},
+		{
+			"create table t (a int) partition by list (a) (partition p0 values in (1), partition p1 values in (default), partition p2 values in (2));",
+			ddl.ErrMultipleDefConstInListPart,
 		},
 	}
 	for i, t := range cases {
@@ -591,6 +590,8 @@ func (s *testIntegrationSuite1) TestCreateTableWithListPartition(c *C) {
 		);`,
 		"create table t (a bigint) partition by list (a) (partition p0 values in (to_seconds('2020-09-28 17:03:38'),to_seconds('2020-09-28 17:03:39')));",
 		"create table t (a datetime) partition by list (to_seconds(a)) (partition p0 values in (to_seconds('2020-09-28 17:03:38'),to_seconds('2020-09-28 17:03:39')));",
+		"create table t (a int) partition by list (a) (partition p0 values in (1), partition p1 values in (default));",
+		"create table t (a int) partition by list (a) (partition p0 values (1,2,3,4,5), partition p1 values (default));",
 	}
 
 	for _, sql := range validCases {

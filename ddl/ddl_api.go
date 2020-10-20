@@ -4667,6 +4667,9 @@ func formatListPartitionValue(ctx sessionctx.Context, tblInfo *model.TableInfo) 
 		}
 	}
 	for i := range defs {
+		if defs[i].IsDefault {
+			continue
+		}
 		for j, vs := range defs[i].InValues {
 			for k, v := range vs {
 				if colTps[k].EvalType() != types.ETInt {
@@ -4678,7 +4681,7 @@ func formatListPartitionValue(ctx sessionctx.Context, tblInfo *model.TableInfo) 
 					return errors.Trace(err)
 				}
 				if !isNull {
-					defs[i].InValues[j][0] = fmt.Sprintf("%d", currentRangeValue)
+					defs[i].InValues[j][k] = fmt.Sprintf("%d", currentRangeValue)
 				}
 			}
 		}

@@ -159,12 +159,17 @@ func buildListPartitionDefinitions(s *ast.CreateTableStmt, pi *model.PartitionIn
 		buf := new(bytes.Buffer)
 		for _, vs := range def.Clause.(*ast.PartitionDefinitionClauseIn).Values {
 			inValue := make([]string, 0, len(vs))
+			isDefault := false
 			for i := range vs {
 				buf.Reset()
 				vs[i].Format(buf)
 				inValue = append(inValue, buf.String())
+				if _, ok := vs[i].(*ast.DefaultValueExpr); ok {
+					isDefault = true
+				}
 			}
 			piDef.InValues = append(piDef.InValues, inValue)
+			piDef.IsDefault = isDefault
 			buf.Reset()
 		}
 		pi.Definitions = append(pi.Definitions, piDef)
@@ -568,6 +573,11 @@ func checkListPartitionValue(ctx sessionctx.Context, tblInfo *model.TableInfo) e
 	}
 
 	for i, def := range pi.Definitions {
+		if def.IsDefault {
+			if i != len(pi.Definitions)-1 {
+				return errors.Trace(ErrMultipleDefConstInListPart)
+			}
+		}
 		for j, vs := range def.InValues {
 			if err := checkUniqueValue(vs); err != nil {
 				return err

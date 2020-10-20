@@ -274,6 +274,9 @@ func generateListPartitionExprStr(ctx sessionctx.Context, pi *model.PartitionInf
 	} else {
 		return generateMultiListColumnsPartitionExprStr(ctx, pi, schema, names, def, p)
 	}
+	if def.IsDefault {
+		return "true", nil
+	}
 	var buf, nullCondBuf bytes.Buffer
 	fmt.Fprintf(&buf, "(%s in (", partStr)
 	for i, vs := range def.InValues {
