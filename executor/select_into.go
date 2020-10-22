@@ -152,7 +152,7 @@ func (s *SelectIntoExec) dumpToOutfile() error {
 				s.lineBuf = append(s.lineBuf, row.GetMyDecimal(j).String()...)
 			case types.ETString:
 				if encoder != nil {
-					str, _, err := transform.String(encoder, row.GetString(i))
+					str, _, err := transform.String(encoder, row.GetString(j))
 					if err != nil {
 						return errors.Trace(err)
 					}
