@@ -738,6 +738,10 @@ func (e *SimpleExec) executeCreateUser(ctx context.Context, s *ast.CreateUserStm
 						return privileges.ErrNotValidPassword.FastGenByArgs()
 					}
 				}
+			} else {
+				if !checkPasswordPolicy(e.ctx, "", spec.User.Username) {
+					return privileges.ErrNotValidPassword.FastGenByArgs()
+				}
 			}
 		}
 		pwd, ok := spec.EncodedPassword()
@@ -1307,9 +1311,10 @@ func countUpper(authString []byte) (cnt int) {
 }
 
 func countSpecialChar(authString []byte) (cnt int) {
+	cnt = len(authString)
 	for _, c := range authString {
 		if (c >= 'A' && c <= 'Z') && (c >= 'a' && c <= 'z') && (c >= '0' && c <= '9') {
-			cnt++
+			cnt--
 		}
 	}
 	return
@@ -1404,11 +1409,11 @@ func checkPasswordPolicy(ctx sessionctx.Context, authString string, userName str
 		return false
 	}
 	switch policy {
-	case "off", "0":
+	case "off", "0", "OFF":
 		return true
-	case "low", "1":
+	case "low", "1", "LOW", "on", "ON":
 		return checkPasswordLength(ctx, []byte(authString))
-	case "medium", "strong", "2", "3":
+	case "medium", "strong", "2", "3", "MEDIUM", "STRONG":
 		return checkPasswordLength(ctx, []byte(authString)) && checkNumAndChar(ctx, []byte(authString))
 	}
 	return false
