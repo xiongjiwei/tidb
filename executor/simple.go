@@ -1148,7 +1148,7 @@ func (e *SimpleExec) executeSetPwd(s *ast.SetPwdStmt) error {
 	}
 
 	// check password policy
-	if !checkPasswordPolicy(e.ctx, s.Password, s.User.Username) {
+	if !checkPasswordPolicy(e.ctx, s.Password, u) {
 		return privileges.ErrNotValidPassword.FastGenByArgs()
 	}
 	checker := privilege.GetPrivilegeManager(e.ctx)
@@ -1157,7 +1157,7 @@ func (e *SimpleExec) executeSetPwd(s *ast.SetPwdStmt) error {
 	}
 
 	// update mysql.user
-	sql := fmt.Sprintf(`UPDATE %s.%s SET authentication_string='%s', used_password='%s' WHERE User='%s' AND Host='%s';`, mysql.SystemDB, mysql.UserTable, auth.EncodePassword(s.Password), checker.AddNewPwd(u, h, auth.EncodePassword(s.Password)), u, h)
+	sql := fmt.Sprintf(`UPDATE %s.%s SET authentication_string='%s', used_password='%s', password_last_changed = current_timestamp(), WHERE User='%s' AND Host='%s';`, mysql.SystemDB, mysql.UserTable, auth.EncodePassword(s.Password), checker.AddNewPwd(u, h, auth.EncodePassword(s.Password)), u, h)
 	_, _, err = e.ctx.(sqlexec.RestrictedSQLExecutor).ExecRestrictedSQL(sql)
 	domain.GetDomain(e.ctx).NotifyUpdatePrivilege(e.ctx)
 	return err
