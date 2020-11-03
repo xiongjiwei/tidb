@@ -785,6 +785,7 @@ func (e *memtableRetriever) setDataFromIndexes(ctx sessionctx.Context, schemas [
 					"",            // INDEX_COMMENT
 					"NULL",        // Expression
 					0,             // INDEX_ID
+					"",
 				)
 				rows = append(rows, record)
 			}
@@ -808,6 +809,10 @@ func (e *memtableRetriever) setDataFromIndexes(ctx sessionctx.Context, schemas [
 						colName = "NULL"
 						expression = fmt.Sprintf("(%s)", tblCol.GeneratedExprString)
 					}
+					scope := "LOCAL"
+					if idxInfo.Global {
+						scope = "GLOBAL"
+					}
 					record := types.MakeDatums(
 						schema.Name.O,   // TABLE_SCHEMA
 						tb.Name.O,       // TABLE_NAME
@@ -819,6 +824,7 @@ func (e *memtableRetriever) setDataFromIndexes(ctx sessionctx.Context, schemas [
 						idxInfo.Comment, // INDEX_COMMENT
 						expression,      // Expression
 						idxInfo.ID,      // INDEX_ID
+						scope,
 					)
 					rows = append(rows, record)
 				}
