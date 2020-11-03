@@ -232,6 +232,8 @@ type Log struct {
 	EnableErrorStack nullableBool `toml:"enable-error-stack" json:"enable-error-stack"`
 	// File log config.
 	File logutil.FileLogConfig `toml:"file" json:"file"`
+	// AuditLogMaxHours max log keep hours
+	AuditLogMaxHours int `toml:"audit-log-max-hours" json:"audit-log-max-hours"`
 
 	EnableSlowLog       bool   `toml:"enable-slow-log" json:"enable-slow-log"`
 	SlowQueryFile       string `toml:"slow-query-file" json:"slow-query-file"`
@@ -573,6 +575,7 @@ var defaultConf = Config{
 		QueryLogMaxLen:      logutil.DefaultQueryLogMaxLen,
 		RecordPlanInSlowLog: logutil.DefaultRecordPlanInSlowLog,
 		EnableSlowLog:       logutil.DefaultTiDBEnableSlowLog,
+		AuditLogMaxHours:    0,
 	},
 	Status: Status{
 		ReportStatus:    true,
