@@ -2051,7 +2051,7 @@ func checkPartitionByList(ctx sessionctx.Context, tbInfo *model.TableInfo, s *as
 
 func checkColumnsPartitionType(tbInfo *model.TableInfo) error {
 	for _, col := range tbInfo.Partition.Columns {
-		colInfo := getColumnInfoByName(tbInfo, col.L)
+		colInfo := findColumnByName(col.L, tbInfo)
 		if colInfo == nil {
 			return errors.Trace(ErrFieldNotFoundPart)
 		}
@@ -5287,7 +5287,7 @@ func checkColumnsTypeAndValuesMatch(ctx sessionctx.Context, meta *model.TableInf
 		}
 
 		colName := colNames[i]
-		colInfo := getColumnInfoByName(meta, colName.L)
+		colInfo := findColumnByName(colName.L, meta)
 		if colInfo == nil {
 			return errors.Trace(ErrFieldNotFoundPart)
 		}
@@ -5586,7 +5586,7 @@ func (d *ddl) RepairTable(ctx sessionctx.Context, table *ast.TableName, createSt
 	newTableInfo.AutoIncID = oldTableInfo.AutoIncID
 	// If any old columnInfo has lost, that means the old column ID lost too, repair failed.
 	for i, newOne := range newTableInfo.Columns {
-		old := getColumnInfoByName(oldTableInfo, newOne.Name.L)
+		old := findColumnByName(newOne.Name.L, oldTableInfo)
 		if old == nil {
 			return ErrRepairTableFail.GenWithStackByArgs("Column " + newOne.Name.L + " has lost")
 		}

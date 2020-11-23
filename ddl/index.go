@@ -92,7 +92,7 @@ func buildIndexColumns(columns []*model.ColumnInfo, indexPartSpecifications []*a
 func checkPKOnGeneratedColumn(tblInfo *model.TableInfo, indexPartSpecifications []*ast.IndexPartSpecification) (*model.ColumnInfo, error) {
 	var lastCol *model.ColumnInfo
 	for _, colName := range indexPartSpecifications {
-		lastCol = getColumnInfoByName(tblInfo, colName.Column.Name.L)
+		lastCol = findColumnByName(colName.Column.Name.L, tblInfo)
 		if lastCol == nil {
 			return nil, errKeyColumnDoesNotExits.GenWithStackByArgs(colName.Column.Name)
 		}

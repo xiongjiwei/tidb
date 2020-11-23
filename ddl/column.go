@@ -1702,15 +1702,6 @@ func findColumnInIndexCols(c string, cols []*model.IndexColumn) *model.IndexColu
 	return nil
 }
 
-func getColumnInfoByName(tbInfo *model.TableInfo, column string) *model.ColumnInfo {
-	for _, colInfo := range tbInfo.Cols() {
-		if colInfo.Name.L == column {
-			return colInfo
-		}
-	}
-	return nil
-}
-
 // isVirtualGeneratedColumn checks the column if it is virtual.
 func isVirtualGeneratedColumn(col *model.ColumnInfo) bool {
 	if col.IsGenerated() && !col.GeneratedStored {

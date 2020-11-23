@@ -1574,7 +1574,7 @@ func checkPartitionKeysConstraint(pi *model.PartitionInfo, indexColumns []*model
 	} else {
 		partCols = make([]*model.ColumnInfo, 0, len(pi.Columns))
 		for _, col := range pi.Columns {
-			colInfo := getColumnInfoByName(tblInfo, col.L)
+			colInfo := findColumnByName(col.L, tblInfo)
 			if colInfo == nil {
 				return false, infoschema.ErrColumnNotExists.GenWithStackByArgs(col, tblInfo.Name)
 			}
@@ -1613,7 +1613,10 @@ func (cne *columnNameExtractor) Leave(node ast.Node) (ast.Node, bool) {
 }
 
 func findColumnByName(colName string, tblInfo *model.TableInfo) *model.ColumnInfo {
-	for _, info := range tblInfo.Columns {
+	if tblInfo == nil {
+		return nil
+	}
+	for _, info := range tblInfo.Cols() {
 		if info.Name.L == colName {
 			return info
 		}
