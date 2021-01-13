@@ -863,3 +863,100 @@ func (b *builtinIfNullJSONSig) evalJSON(row chunk.Row) (json.BinaryJSON, bool, e
 	arg1, isNull, err := b.args[1].EvalJSON(b.ctx, row)
 	return arg1, isNull || err != nil, err
 }
+
+type decodeCtrlFunctionClass struct {
+	baseFunctionClass
+}
+
+func (b *decodeCtrlFunctionClass) getFunction(ctx sessionctx.Context, args []Expression) (sig builtinFunc, err error) {
+	if err = b.verifyArgs(args); err != nil {
+		return nil, err
+	}
+
+	if err := b.verifyArgType(args); err != nil {
+		return nil, err
+	}
+
+	exprs := make([]Expression, 0, len(args)/2)
+	exprs = append(exprs, args[0])
+	for i := 1; i < len(args)-1; i += 2 {
+		exprs = append(exprs, args[i])
+	}
+	comTp := b.inferRetType(exprs, args[1])
+	exprs = exprs[:0]
+	for i := 0; i < len(args)-1; i += 2 {
+		exprs = append(exprs, args[i])
+	}
+	exprs = append(exprs, args[len(args)-1])
+	retTp := b.inferRetType(exprs, args[2])
+
+	argsType := make([]types.EvalType, 0, len(args))
+	argsType = append(argsType, comTp.EvalType())
+	for i := 1; i < len(args)-1; i += 2 {
+		if i % 2==1 {
+			argsType = append(argsType, comTp.EvalType())
+		} else {
+			argsType = append(argsType, retTp.EvalType())
+		}
+	}
+	argsType = append(argsType, retTp.EvalType())
+
+	bf := newBaseBuiltinFuncWithTp(ctx, args, retTp.EvalType(), argsType...)
+	bf.tp = retTp
+
+	return &decodeCtrlSig{bf}, nil
+}
+
+func (b *decodeCtrlFunctionClass) verifyArgType(args []Expression) error {
+	for _, arg := range args {
+		tp := arg.GetType().Tp
+		if !types.IsString(tp) {
+			return ErrIncorrectParameterCount.GenWithStackByArgs(b.funcName)
+		}
+
+		switch tp {
+		case mysql.TypeNull, mysql.TypeBit, mysql.TypeTiny, mysql.TypeInt24, mysql.TypeLong, mysql.TypeLonglong,
+			mysql.TypeFloat, mysql.TypeDouble, mysql.TypeShort:
+		default:
+			return ErrIncorrectParameterCount.GenWithStackByArgs(b.funcName)
+		}
+	}
+
+	return nil
+}
+
+func (b *decodeCtrlFunctionClass) inferRetType(args []Expression, intend Expression) *types.FieldType {
+	tp := intend.GetType().Clone()
+	if args[0].GetType().Tp == mysql.TypeNull {
+		tp = types.NewFieldType(mysql.TypeString)
+	}
+
+	for _, arg := range args {
+		tp.Flen = mathutil.Max(tp.Flen, arg.GetType().Flen)
+	}
+	return tp
+}
+
+func (b *decodeCtrlFunctionClass) convertType(tp byte) byte {
+	if tp == mysql.TypeNull {
+		return mysql.TypeString
+	}
+
+	return tp
+}
+
+type decodeCtrlSig struct {
+	baseBuiltinFunc
+}
+
+func (d *decodeCtrlSig) evalInt(row chunk.Row) (ret int64, isNull bool, err error) {
+
+}
+
+func (d *decodeCtrlSig) evalReal(row chunk.Row) (ret float64, isNull bool, err error) {
+
+}
+
+func (d *decodeCtrlSig) evalString(row chunk.Row) (ret string, isNull bool, err error) {
+
+}
