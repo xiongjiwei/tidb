@@ -15,6 +15,7 @@ package expression
 
 import (
 	"github.com/cznic/mathutil"
+	"github.com/pingcap/parser/ast"
 	"github.com/pingcap/parser/charset"
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/sessionctx"
@@ -873,38 +874,16 @@ func (b *decodeCtrlFunctionClass) getFunction(ctx sessionctx.Context, args []Exp
 		return nil, err
 	}
 
-	if err := b.verifyArgType(args); err != nil {
-		return nil, err
-	}
-
-	exprs := make([]Expression, 0, len(args)/2)
-	exprs = append(exprs, args[0])
+	expr := args[0]
 	for i := 1; i < len(args)-1; i += 2 {
-		exprs = append(exprs, args[i])
-	}
-	comTp := b.inferRetType(exprs, args[1])
-	exprs = exprs[:0]
-	for i := 0; i < len(args)-1; i += 2 {
-		exprs = append(exprs, args[i])
-	}
-	exprs = append(exprs, args[len(args)-1])
-	retTp := b.inferRetType(exprs, args[2])
-
-	argsType := make([]types.EvalType, 0, len(args))
-	argsType = append(argsType, comTp.EvalType())
-	for i := 1; i < len(args)-1; i += 2 {
-		if i % 2==1 {
-			argsType = append(argsType, comTp.EvalType())
-		} else {
-			argsType = append(argsType, retTp.EvalType())
+		f, err := NewFunction(ctx, ast.EQ, types.NewFieldType(mysql.TypeTiny), expr, args[i])
+		if err != nil {
+			return nil, err
 		}
+		args[i] = f
 	}
-	argsType = append(argsType, retTp.EvalType())
 
-	bf := newBaseBuiltinFuncWithTp(ctx, args, retTp.EvalType(), argsType...)
-	bf.tp = retTp
-
-	return &decodeCtrlSig{bf}, nil
+	return funcs[ast.Case].getFunction(ctx, args)
 }
 
 func (b *decodeCtrlFunctionClass) verifyArgType(args []Expression) error {
@@ -945,18 +924,18 @@ func (b *decodeCtrlFunctionClass) convertType(tp byte) byte {
 	return tp
 }
 
-type decodeCtrlSig struct {
-	baseBuiltinFunc
-}
-
-func (d *decodeCtrlSig) evalInt(row chunk.Row) (ret int64, isNull bool, err error) {
-
-}
-
-func (d *decodeCtrlSig) evalReal(row chunk.Row) (ret float64, isNull bool, err error) {
-
-}
-
-func (d *decodeCtrlSig) evalString(row chunk.Row) (ret string, isNull bool, err error) {
-
-}
+//type decodeCtrlSig struct {
+//	baseBuiltinFunc
+//}
+//
+//func (d *decodeCtrlSig) evalInt(row chunk.Row) (ret int64, isNull bool, err error) {
+//
+//}
+//
+//func (d *decodeCtrlSig) evalReal(row chunk.Row) (ret float64, isNull bool, err error) {
+//
+//}
+//
+//func (d *decodeCtrlSig) evalString(row chunk.Row) (ret string, isNull bool, err error) {
+//
+//}
