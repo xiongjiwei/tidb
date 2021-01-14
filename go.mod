@@ -77,4 +77,4 @@ require (
 
 go 1.13
 
-replace github.com/pingcap/parser => github.com/xiongjiwei/parser v0.0.0-20210114035359-7df0fc096731
+replace github.com/pingcap/parser => github.com/xiongjiwei/parser decode-fun
