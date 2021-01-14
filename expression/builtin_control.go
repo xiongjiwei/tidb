@@ -865,11 +865,11 @@ func (b *builtinIfNullJSONSig) evalJSON(row chunk.Row) (json.BinaryJSON, bool, e
 	return arg1, isNull || err != nil, err
 }
 
-type decodeCtrlFunctionClass struct {
+type decodeCaseFunctionClass struct {
 	baseFunctionClass
 }
 
-func (b *decodeCtrlFunctionClass) getFunction(ctx sessionctx.Context, args []Expression) (sig builtinFunc, err error) {
+func (b *decodeCaseFunctionClass) getFunction(ctx sessionctx.Context, args []Expression) (sig builtinFunc, err error) {
 	if err = b.verifyArgs(args); err != nil {
 		return nil, err
 	}
@@ -883,10 +883,10 @@ func (b *decodeCtrlFunctionClass) getFunction(ctx sessionctx.Context, args []Exp
 		args[i] = f
 	}
 
-	return funcs[ast.Case].getFunction(ctx, args)
+	return funcs[ast.Case].getFunction(ctx, args[1:])
 }
 
-func (b *decodeCtrlFunctionClass) verifyArgType(args []Expression) error {
+func (b *decodeCaseFunctionClass) verifyArgType(args []Expression) error {
 	for _, arg := range args {
 		tp := arg.GetType().Tp
 		if !types.IsString(tp) {
@@ -904,7 +904,7 @@ func (b *decodeCtrlFunctionClass) verifyArgType(args []Expression) error {
 	return nil
 }
 
-func (b *decodeCtrlFunctionClass) inferRetType(args []Expression, intend Expression) *types.FieldType {
+func (b *decodeCaseFunctionClass) inferRetType(args []Expression, intend Expression) *types.FieldType {
 	tp := intend.GetType().Clone()
 	if args[0].GetType().Tp == mysql.TypeNull {
 		tp = types.NewFieldType(mysql.TypeString)
@@ -916,7 +916,7 @@ func (b *decodeCtrlFunctionClass) inferRetType(args []Expression, intend Express
 	return tp
 }
 
-func (b *decodeCtrlFunctionClass) convertType(tp byte) byte {
+func (b *decodeCaseFunctionClass) convertType(tp byte) byte {
 	if tp == mysql.TypeNull {
 		return mysql.TypeString
 	}
