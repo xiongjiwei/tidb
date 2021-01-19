@@ -17,6 +17,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/pingcap/tidb/sessionctx/variable"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -482,6 +483,10 @@ func (e *LoadDataInfo) colsToRow(ctx context.Context, cols []field, line []byte)
 	}
 	if err := e.checkRowValid(ctx, cols, line); err != nil {
 		logutil.LoadDataFailure.Info(err.Error())
+		loadBrokenData, _ := e.ctx.GetSessionVars().GetSystemVar(variable.TIDBLoadBrokenData)
+		if loadBrokenData == "off" {
+			return nil
+		}
 	}
 	// a new row buffer will be allocated in getRow
 	row, err := e.getRow(ctx, e.row)
