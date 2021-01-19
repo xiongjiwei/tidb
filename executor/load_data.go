@@ -462,12 +462,8 @@ func (e *LoadDataInfo) SetMessage() {
 
 func (e *LoadDataInfo) colsToRow(ctx context.Context, cols []field, line []byte) []types.Datum {
 	totalCols := e.Table.Cols()
-	if len(cols) > len(e.row) {
-		logutil.LoadDataFailure.Infof("load file [%s], line [%d]: [%s] has too much columns", e.Path, e.rowCount, string(line))
-	}
 	for i := 0; i < len(e.row); i++ {
 		if i >= len(cols) {
-			logutil.LoadDataFailure.Infof("load file [%s], line [%d]: [%s] is missing columns", e.Path, e.rowCount, string(line))
 			// If some columns is missing and their type is time and has not null flag, they should be set as current time.
 			if types.IsTypeTime(totalCols[i].Tp) && mysql.HasNotNullFlag(totalCols[i].Flag) {
 				e.row[i].SetMysqlTime(types.CurrentTime(totalCols[i].Tp))
@@ -484,14 +480,10 @@ func (e *LoadDataInfo) colsToRow(ctx context.Context, cols []field, line []byte)
 			e.row[i].SetString(string(cols[i].str), mysql.DefaultCollationName)
 		}
 	}
-	// a new row buffer will be allocated in getRow
-	for i, v := range e.row {
-		_, err := table.CastValue(e.ctx, v, e.insertColumns[i].ToInfo())
-		if err != nil {
-			logutil.LoadDataFailure.Infof("load file [%s], line [%d]: [%s]: %s", e.Path, e.rowCount, string(line), err.Error())
-			break
-		}
+	if err := e.checkRowValid(ctx, cols, line); err != nil {
+		logutil.LoadDataFailure.Info(err.Error())
 	}
+	// a new row buffer will be allocated in getRow
 	row, err := e.getRow(ctx, e.row)
 	if err != nil {
 		logutil.LoadDataFailure.Infof("load file [%s], line [%d]: [%s]: %s", e.Path, e.rowCount, string(line), err.Error())
@@ -499,6 +491,25 @@ func (e *LoadDataInfo) colsToRow(ctx context.Context, cols []field, line []byte)
 		return nil
 	}
 	return row
+}
+
+func (e *LoadDataInfo) checkRowValid(ctx context.Context, cols []field, line []byte) error {
+	if len(cols) > len(e.row) {
+		return errors.Errorf("load file [%s], line %d: [%s] has too much columns", e.Path, e.rowCount, string(line))
+	}
+
+	if len(cols) < len(e.row) {
+		return errors.Errorf("load file [%s], line %d: [%s] is missing columns", e.Path, e.rowCount, string(line))
+	}
+
+	for i, v := range e.row {
+		_, err := table.CastValue(e.ctx, v, e.insertColumns[i].ToInfo())
+		if err != nil {
+			return errors.Errorf("load file [%s], line %d: [%s] %s", e.Path, e.rowCount, string(line), err.Error())
+		}
+	}
+
+	return nil
 }
 
 func (e *LoadDataInfo) addRecordLD(ctx context.Context, row []types.Datum) (int64, error) {
