@@ -122,6 +122,7 @@ type LoadDataInfo struct {
 	FieldsInfo  *ast.FieldsClause
 	LinesInfo   *ast.LinesClause
 	IgnoreLines uint64
+	lineNumber  uint64
 	Ctx         sessionctx.Context
 	rows        [][]types.Datum
 	Drained     bool
@@ -412,6 +413,7 @@ func (e *LoadDataInfo) InsertData(ctx context.Context, prevData, curData []byte)
 			curData = nil
 		}
 
+		e.lineNumber++
 		if e.IgnoreLines > 0 {
 			e.IgnoreLines--
 			continue
@@ -423,7 +425,12 @@ func (e *LoadDataInfo) InsertData(ctx context.Context, prevData, curData []byte)
 		// rowCount will be used in fillRow(), last insert ID will be assigned according to the rowCount = 1.
 		// So should add first here.
 		e.rowCount++
-		e.rows = append(e.rows, e.colsToRow(ctx, cols, line))
+		row := e.colsToRow(ctx, cols, line)
+		if row == nil {
+			e.rowCount--
+			continue
+		}
+		e.rows = append(e.rows, row)
 		e.curBatchCnt++
 		if e.maxRowsInBatch != 0 && e.rowCount%e.maxRowsInBatch == 0 {
 			reachLimit = true
@@ -491,7 +498,7 @@ func (e *LoadDataInfo) colsToRow(ctx context.Context, cols []field, line []byte)
 	// a new row buffer will be allocated in getRow
 	row, err := e.getRow(ctx, e.row)
 	if err != nil {
-		logutil.LoadDataFailure.Infof("load file [%s], line [%d]: [%s]: %s", e.Path, e.rowCount, string(line), err.Error())
+		logutil.LoadDataFailure.Infof("load file [%s], line [%d]: [%s]: %s", e.Path, e.lineNumber, string(line), err.Error())
 		e.handleWarning(err)
 		return nil
 	}
@@ -500,17 +507,17 @@ func (e *LoadDataInfo) colsToRow(ctx context.Context, cols []field, line []byte)
 
 func (e *LoadDataInfo) checkRowValid(ctx context.Context, cols []field, line []byte) error {
 	if len(cols) > len(e.row) {
-		return errors.Errorf("load file [%s], line %d: [%s] has too much columns", e.Path, e.rowCount, string(line))
+		return errors.Errorf("load file [%s], line %d: [%s] has too much columns", e.Path, e.lineNumber, string(line))
 	}
 
 	if len(cols) < len(e.row) {
-		return errors.Errorf("load file [%s], line %d: [%s] is missing columns", e.Path, e.rowCount, string(line))
+		return errors.Errorf("load file [%s], line %d: [%s] is missing columns", e.Path, e.lineNumber, string(line))
 	}
 
 	for i, v := range e.row {
 		_, err := table.CastValue(e.ctx, v, e.insertColumns[i].ToInfo())
 		if err != nil {
-			return errors.Errorf("load file [%s], line %d: [%s] %s", e.Path, e.rowCount, string(line), err.Error())
+			return errors.Errorf("load file [%s], line %d: [%s] %s", e.Path, e.lineNumber, string(line), err.Error())
 		}
 	}
 
