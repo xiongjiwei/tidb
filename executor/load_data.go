@@ -422,7 +422,7 @@ func (e *LoadDataInfo) InsertData(ctx context.Context, prevData, curData []byte)
 		// rowCount will be used in fillRow(), last insert ID will be assigned according to the rowCount = 1.
 		// So should add first here.
 		e.rowCount++
-		e.rows = append(e.rows, e.colsToRow(ctx, cols))
+		e.rows = append(e.rows, e.colsToRow(ctx, cols, line))
 		e.curBatchCnt++
 		if e.maxRowsInBatch != 0 && e.rowCount%e.maxRowsInBatch == 0 {
 			reachLimit = true
@@ -460,10 +460,14 @@ func (e *LoadDataInfo) SetMessage() {
 	e.ctx.GetSessionVars().StmtCtx.SetMessage(msg)
 }
 
-func (e *LoadDataInfo) colsToRow(ctx context.Context, cols []field) []types.Datum {
+func (e *LoadDataInfo) colsToRow(ctx context.Context, cols []field, line []byte) []types.Datum {
 	totalCols := e.Table.Cols()
+	if len(cols) > len(e.row) {
+		logutil.LoadDataFailure.Infof("load file [%s], line [%d]: [%s] has too much columns", e.Path, e.rowCount, string(line))
+	}
 	for i := 0; i < len(e.row); i++ {
 		if i >= len(cols) {
+			logutil.LoadDataFailure.Infof("load file [%s], line [%d]: [%s] is missing columns", e.Path, e.rowCount, string(line))
 			// If some columns is missing and their type is time and has not null flag, they should be set as current time.
 			if types.IsTypeTime(totalCols[i].Tp) && mysql.HasNotNullFlag(totalCols[i].Flag) {
 				e.row[i].SetMysqlTime(types.CurrentTime(totalCols[i].Tp))
@@ -481,8 +485,16 @@ func (e *LoadDataInfo) colsToRow(ctx context.Context, cols []field) []types.Datu
 		}
 	}
 	// a new row buffer will be allocated in getRow
+	for i, v := range e.row {
+		_, err := table.CastValue(e.ctx, v, e.insertColumns[i].ToInfo())
+		if err != nil {
+			logutil.LoadDataFailure.Infof("load file [%s], line [%d]: [%s]: %s", e.Path, e.rowCount, string(line), err.Error())
+			break
+		}
+	}
 	row, err := e.getRow(ctx, e.row)
 	if err != nil {
+		logutil.LoadDataFailure.Infof("load file [%s], line [%d]: [%s]: %s", e.Path, e.rowCount, string(line), err.Error())
 		e.handleWarning(err)
 		return nil
 	}
