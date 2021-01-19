@@ -752,7 +752,7 @@ func ValidateSetSystemVar(vars *SessionVars, name string, value string, scope Sc
 			return value, errors.Trace(err)
 		}
 	case TIDBLoadBrokenData:
-		if value != "on" && value != "off" {
+		if !strings.EqualFold(value, "on") && !strings.EqualFold(value, "off") {
 			return value, ErrWrongValueForVar.GenWithStackByArgs(name, value)
 		}
 	}

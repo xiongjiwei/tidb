@@ -491,7 +491,7 @@ func (e *LoadDataInfo) colsToRow(ctx context.Context, cols []field, line []byte)
 	if err := e.checkRowValid(ctx, cols, line); err != nil {
 		logutil.LoadDataFailure.Info(err.Error())
 		loadBrokenData, _ := e.ctx.GetSessionVars().GetSystemVar(variable.TIDBLoadBrokenData)
-		if loadBrokenData == "off" {
+		if strings.EqualFold(loadBrokenData, "off") {
 			return nil
 		}
 	}
