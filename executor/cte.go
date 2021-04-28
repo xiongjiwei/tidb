@@ -128,7 +128,6 @@ func (e *CTEExec) Next(ctx context.Context, req *chunk.Chunk) (err error) {
                     return err
                 }
                 if chk.NumRows() == 0 {
-                    // TODO: other iteration stop condition: max iter num
                     if e.iterOutTbl.NumChunks() == 0 {
                         break
                     } else {
