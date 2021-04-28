@@ -396,8 +396,8 @@ func (r *ReaderWithCache) ReadAt(p []byte, off int64) (readCnt int, err error) {
 	if len(p) == readCnt {
 		return readCnt, err
 	} else if len(p) < readCnt {
-		return readCnt, errors2.Trace(errors2.Errorf("cannot read more data than user requested(readCnt: %v, len(p): %v",
-			readCnt, len(p)))
+		return readCnt, errors2.Trace(errors2.Errorf("cannot read more data than user requested"+
+			"(readCnt: %v, len(p): %v", readCnt, len(p)))
 	}
 
 	// When got here, user input is not filled fully, so we need read data from cache.
@@ -422,7 +422,7 @@ func (r *ReaderWithCache) ReadAt(p []byte, off int64) (readCnt int, err error) {
 			err = io.EOF
 			end = len(r.cache)
 		}
-		readCnt = copy(p, r.cache[:end])
+		readCnt += copy(p, r.cache[:end])
 	}
 	return readCnt, err
 }
