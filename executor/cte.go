@@ -16,8 +16,8 @@ package executor
 import (
 	"context"
 
-	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/errors"
+	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/util/chunk"
 	"github.com/pingcap/tidb/util/memory"
 )
@@ -69,17 +69,17 @@ func (e *CTEExec) Open(ctx context.Context) (err error) {
 		return err
 	}
 
-    if e.seedExec == nil {
-        return errors.New("seedExec for CTEExec is nil")
-    }
-    if err = e.seedExec.Open(ctx); err != nil {
-        return err
-    }
-    if e.recursiveExec != nil {
-        if err = e.recursiveExec.Open(ctx); err != nil {
-            return err
-        }
-    }
+	if e.seedExec == nil {
+		return errors.New("seedExec for CTEExec is nil")
+	}
+	if err = e.seedExec.Open(ctx); err != nil {
+		return err
+	}
+	if e.recursiveExec != nil {
+		if err = e.recursiveExec.Open(ctx); err != nil {
+			return err
+		}
+	}
 
 	memTracker := e.resTbl.GetMemTracker()
 	memTracker.SetLabel(memory.LabelForCTEStorage)
@@ -119,45 +119,45 @@ func (e *CTEExec) Next(ctx context.Context, req *chunk.Chunk) (err error) {
 			}
 		}
 
-        if e.recursiveExec != nil && e.iterInTbl.NumChunks() != 0 {
-            // Start to compute recursive part. Iteration 1 begins.
-            // TODO: use session var
-            for e.curIter = 1; e.curIter < 1000; {
-                chk := newFirstChunk(e.recursiveExec)
-                if err = Next(ctx, e.recursiveExec, chk); err != nil {
-                    return err
-                }
-                if chk.NumRows() == 0 {
-                    if e.iterOutTbl.NumChunks() == 0 {
-                        break
-                    } else {
-                        // Next iteration begins. Need use iterOutTbl as input of next iteration.
-                        for i := 0; i < e.iterOutTbl.NumChunks(); i++ {
-                            if chk, err = e.iterOutTbl.GetChunk(i); err != nil {
-                                return err
-                            }
-                            if err = e.resTbl.Add(chk); err != nil {
-                                return err
-                            }
-                        }
-                        if err = e.iterInTbl.SwapData(e.iterOutTbl); err != nil {
-                            return err
-                        }
-                        if err = e.iterOutTbl.ResetData(); err != nil {
-                            return err
-                        }
-                        e.curIter++
-                        e.iterInTbl.SetIter(e.curIter)
-                    }
-                } else {
-                    if err = e.iterOutTbl.Add(chk); err != nil {
-                        return err
-                    }
-                }
-            }
-        }
+		if e.recursiveExec != nil && e.iterInTbl.NumChunks() != 0 {
+			// Start to compute recursive part. Iteration 1 begins.
+			// TODO: use session var
+			for e.curIter = 1; e.curIter < 1000; {
+				chk := newFirstChunk(e.recursiveExec)
+				if err = Next(ctx, e.recursiveExec, chk); err != nil {
+					return err
+				}
+				if chk.NumRows() == 0 {
+					if e.iterOutTbl.NumChunks() == 0 {
+						break
+					} else {
+						// Next iteration begins. Need use iterOutTbl as input of next iteration.
+						for i := 0; i < e.iterOutTbl.NumChunks(); i++ {
+							if chk, err = e.iterOutTbl.GetChunk(i); err != nil {
+								return err
+							}
+							if err = e.resTbl.Add(chk); err != nil {
+								return err
+							}
+						}
+						if err = e.iterInTbl.SwapData(e.iterOutTbl); err != nil {
+							return err
+						}
+						if err = e.iterOutTbl.ResetData(); err != nil {
+							return err
+						}
+						e.curIter++
+						e.iterInTbl.SetIter(e.curIter)
+					}
+				} else {
+					if err = e.iterOutTbl.Add(chk); err != nil {
+						return err
+					}
+				}
+			}
+		}
 
-        // TODO: defer?
+		// TODO: defer?
 		e.resTbl.SetDone()
 	}
 	e.resTbl.Unlock()
@@ -175,14 +175,14 @@ func (e *CTEExec) Next(ctx context.Context, req *chunk.Chunk) (err error) {
 }
 
 func (e *CTEExec) Close() (err error) {
-    if err = e.seedExec.Close(); err != nil {
-        return err
-    }
-    if e.recursiveExec != nil {
-        if err = e.recursiveExec.Close(); err != nil {
-            return err
-        }
-    }
+	if err = e.seedExec.Close(); err != nil {
+		return err
+	}
+	if e.recursiveExec != nil {
+		if err = e.recursiveExec.Close(); err != nil {
+			return err
+		}
+	}
 	if err = e.resTbl.DerefAndClose(); err != nil {
 		return err
 	}

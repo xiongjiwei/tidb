@@ -14,8 +14,8 @@
 package chunk
 
 import (
-	"fmt"
 	"bytes"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"math/rand"
@@ -222,7 +222,7 @@ func (s *testChunkSuite) TestListInDiskWithChecksum(c *check.C) {
 	})
 	testListInDisk(c)
 
-    testReaderWithCache(c)
+	testReaderWithCache(c)
 }
 
 func (s *testChunkSuite) TestListInDiskWithChecksumAndEncrypt(c *check.C) {
@@ -232,7 +232,7 @@ func (s *testChunkSuite) TestListInDiskWithChecksumAndEncrypt(c *check.C) {
 	})
 	testListInDisk(c)
 
-    testReaderWithCache(c)
+	testReaderWithCache(c)
 }
 
 // checksum layer data layout:
@@ -246,32 +246,32 @@ func (s *testChunkSuite) TestListInDiskWithChecksumAndEncrypt(c *check.C) {
 // |      |                                          | |                             |
 // +------+------------------------------------------+ +-----------------------------+
 func testReaderWithCache(c *check.C) {
-    testData := "0123456789"
-    buf := bytes.NewBuffer(nil)
-    for i := 0; i < 102; i++ {
-        buf.WriteString(testData)
-    }
-    buf.WriteString("0123")
-    
-    field := []*types.FieldType{types.NewFieldType(mysql.TypeString)}
-    chk := NewChunkWithCapacity(field, 1)
-    chk.AppendString(0, string(buf.Bytes()))
-    l := NewListInDisk(field)
-    err := l.Add(chk)
-    c.Assert(err, check.IsNil)
+	testData := "0123456789"
+	buf := bytes.NewBuffer(nil)
+	for i := 0; i < 102; i++ {
+		buf.WriteString(testData)
+	}
+	buf.WriteString("0123")
 
-    // basic test for GetRow()
-    row, err := l.GetRow(RowPtr{0, 0})
-    c.Assert(err, check.IsNil)
-    c.Assert(row.GetDatumRow(field), check.DeepEquals, chk.GetRow(0).GetDatumRow(field))
+	field := []*types.FieldType{types.NewFieldType(mysql.TypeString)}
+	chk := NewChunkWithCapacity(field, 1)
+	chk.AppendString(0, string(buf.Bytes()))
+	l := NewListInDisk(field)
+	err := l.Add(chk)
+	c.Assert(err, check.IsNil)
+
+	// basic test for GetRow()
+	row, err := l.GetRow(RowPtr{0, 0})
+	c.Assert(err, check.IsNil)
+	c.Assert(row.GetDatumRow(field), check.DeepEquals, chk.GetRow(0).GetDatumRow(field))
 
 	var underlying io.ReaderAt = l.disk
 	if l.ctrCipher != nil {
 		underlying = NewReaderWithCache(encrypt.NewReader(l.disk, l.ctrCipher), l.cipherWriter.GetCache(), l.cipherWriter.GetCacheDataOffset())
 	}
-    checksumReader := NewReaderWithCache(checksum.NewReader(underlying), l.checksumWriter.GetCache(), l.checksumWriter.GetCacheDataOffset())
+	checksumReader := NewReaderWithCache(checksum.NewReader(underlying), l.checksumWriter.GetCache(), l.checksumWriter.GetCacheDataOffset())
 
-    // only read data of mem cache
-    data := make([]byte, 1024)
-    checksumReader.ReadAt(data, 0)
+	// only read data of mem cache
+	data := make([]byte, 1024)
+	checksumReader.ReadAt(data, 0)
 }

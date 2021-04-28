@@ -19,7 +19,7 @@ import (
 	"io"
 	"sync"
 
-    "github.com/pingcap/errors"
+	"github.com/pingcap/errors"
 )
 
 const (
@@ -43,22 +43,22 @@ var checksumReaderBufPool = sync.Pool{
 // | --    4B    -- | --  1020B  -- || --    4B    -- | --  1020B  -- || --    4B    -- | --   60B   -- |
 // | -- checksum -- | -- payload -- || -- checksum -- | -- payload -- || -- checksum -- | -- payload -- |
 type Writer struct {
-	err         error
-	w           io.WriteCloser
-	buf         []byte
-	payload     []byte
-	payloadUsed int
-    flushedUserDataCnt int64
+	err                error
+	w                  io.WriteCloser
+	buf                []byte
+	payload            []byte
+	payloadUsed        int
+	flushedUserDataCnt int64
 }
 
 // NewWriter returns a new Writer which calculates and stores a CRC-32 checksum for the payload before
 // writing to the underlying object.
 func NewWriter(w io.WriteCloser) *Writer {
-    checksumWriter := &Writer{w: w}
-    checksumWriter.buf = make([]byte, checksumBlockSize)
-    checksumWriter.payload = checksumWriter.buf[checksumSize:]
-    checksumWriter.payloadUsed = 0
-    return checksumWriter
+	checksumWriter := &Writer{w: w}
+	checksumWriter.buf = make([]byte, checksumBlockSize)
+	checksumWriter.payload = checksumWriter.buf[checksumSize:]
+	checksumWriter.payloadUsed = 0
+	return checksumWriter
 }
 
 // AvailableSize returns how many bytes are unused in the buffer.
@@ -74,7 +74,7 @@ func (w *Writer) Write(p []byte) (n int, err error) {
 			return
 		}
 		n += copiedNum
-        p = p[copiedNum:]
+		p = p[copiedNum:]
 	}
 	if w.err != nil {
 		return n, w.err
@@ -106,17 +106,17 @@ func (w *Writer) Flush() error {
 		w.err = err
 		return err
 	}
-    w.flushedUserDataCnt += int64(w.payloadUsed)
-    w.payloadUsed = 0
+	w.flushedUserDataCnt += int64(w.payloadUsed)
+	w.payloadUsed = 0
 	return nil
 }
 
 func (w *Writer) GetCacheDataOffset() int64 {
-    return w.flushedUserDataCnt
+	return w.flushedUserDataCnt
 }
 
 func (w *Writer) GetCache() []byte {
-    return w.payload[:w.payloadUsed]
+	return w.payload[:w.payloadUsed]
 }
 
 // Close implements the io.Closer interface.
