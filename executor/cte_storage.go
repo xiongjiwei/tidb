@@ -188,9 +188,9 @@ func (s *CTEStorageRC) SetDone() {
 }
 
 func (s *CTEStorageRC) ResetData() error {
-    if s.filterDup {
-        s.ht = newConcurrentMapHashTable()
-    }
+	if s.filterDup {
+		s.ht = newConcurrentMapHashTable()
+	}
 	return s.rc.Reset()
 }
 
@@ -223,9 +223,9 @@ func (s *CTEStorageRC) resetAll() error {
 	s.done = false
 	s.iter = 0
 	s.sc = nil
-    if s.filterDup {
-        s.ht = newConcurrentMapHashTable()
-    }
+	if s.filterDup {
+		s.ht = newConcurrentMapHashTable()
+	}
 	s.filterDup = false
 	return s.rc.Reset()
 }
@@ -251,11 +251,11 @@ func (s *CTEStorageRC) filterAndAddHashTable(sc *stmtctx.StatementContext, chk *
 			return nil, errors.Trace(err)
 		}
 	}
-    tmpChkNoDup := chunk.NewChunkWithCapacity(s.tp, chk.Capacity())
-    chkHt := newConcurrentMapHashTable()
-    idxForOriRows := make([]int, 0, chk.NumRows())
+	tmpChkNoDup := chunk.NewChunkWithCapacity(s.tp, chk.Capacity())
+	chkHt := newConcurrentMapHashTable()
+	idxForOriRows := make([]int, 0, chk.NumRows())
 
-    // filter rows duplicated in cur chk
+	// filter rows duplicated in cur chk
 	for i := 0; i < rows; i++ {
 		key := hasher[i].Sum64()
 		row := chk.GetRow(i)
@@ -272,10 +272,10 @@ func (s *CTEStorageRC) filterAndAddHashTable(sc *stmtctx.StatementContext, chk *
 
 		rowPtr := chunk.RowPtr{ChkIdx: uint32(0), RowIdx: uint32(i)}
 		chkHt.Put(key, rowPtr)
-        idxForOriRows = append(idxForOriRows, i)
+		idxForOriRows = append(idxForOriRows, i)
 	}
 
-    // filter rows duplicated in RowContainer
+	// filter rows duplicated in RowContainer
 	chkIdx := s.rc.NumChunks()
 	finalChkNoDup = chunk.NewChunkWithCapacity(s.tp, chk.Capacity())
 	for i := 0; i < tmpChkNoDup.NumRows(); i++ {
@@ -290,7 +290,7 @@ func (s *CTEStorageRC) filterAndAddHashTable(sc *stmtctx.StatementContext, chk *
 			continue
 		}
 
-        rowIdx := finalChkNoDup.NumRows()
+		rowIdx := finalChkNoDup.NumRows()
 		finalChkNoDup.AppendRow(row)
 
 		rowPtr := chunk.RowPtr{ChkIdx: uint32(chkIdx), RowIdx: uint32(rowIdx)}
@@ -302,9 +302,9 @@ func (s *CTEStorageRC) filterAndAddHashTable(sc *stmtctx.StatementContext, chk *
 func (s *CTEStorageRC) checkHasDup(probeKey uint64, row chunk.Row, ht baseHashTable, curChk *chunk.Chunk) (hasDup bool, err error) {
 	ptrs := ht.Get(probeKey)
 
-    if len(ptrs) == 0 {
-        return false, nil
-    }
+	if len(ptrs) == 0 {
+		return false, nil
+	}
 
 	colIdx := make([]int, row.Len())
 	for i := range colIdx {
@@ -312,12 +312,12 @@ func (s *CTEStorageRC) checkHasDup(probeKey uint64, row chunk.Row, ht baseHashTa
 	}
 
 	for _, ptr := range ptrs {
-        var matchedRow chunk.Row
-        if curChk != nil {
-            matchedRow = curChk.GetRow(int(ptr.RowIdx))
-        } else {
-            matchedRow, err = s.rc.GetRow(ptr)
-        }
+		var matchedRow chunk.Row
+		if curChk != nil {
+			matchedRow = curChk.GetRow(int(ptr.RowIdx))
+		} else {
+			matchedRow, err = s.rc.GetRow(ptr)
+		}
 		if err != nil {
 			return false, err
 		}

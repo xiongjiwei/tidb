@@ -19,8 +19,7 @@ import (
 	"io/ioutil"
 	"os"
 	"strconv"
-    "sync"
-
+	"sync"
 
 	errors2 "github.com/pingcap/errors"
 	"github.com/pingcap/parser/terror"
@@ -47,8 +46,8 @@ type ListInDisk struct {
 	diskTracker   *disk.Tracker // track disk usage.
 	numRowsInDisk int
 
-    checksumWriter *checksum.Writer
-    cipherWriter *encrypt.Writer
+	checksumWriter *checksum.Writer
+	cipherWriter   *encrypt.Writer
 
 	// ctrCipher stores the key and nonce using by aes encrypt io layer
 	ctrCipher *encrypt.CtrCipher
@@ -83,10 +82,10 @@ func (l *ListInDisk) initDiskFile() (err error) {
 			return
 		}
 		l.cipherWriter = encrypt.NewWriter(l.disk, l.ctrCipher)
-        underlying = l.cipherWriter
+		underlying = l.cipherWriter
 	}
 	l.checksumWriter = checksum.NewWriter(underlying)
-    l.w = l.checksumWriter
+	l.w = l.checksumWriter
 	l.bufFlushMutex = sync.RWMutex{}
 	return
 }
@@ -178,7 +177,7 @@ func (l *ListInDisk) GetRow(ptr RowPtr) (row Row, err error) {
 	if l.ctrCipher != nil {
 		underlying = NewReaderWithCache(encrypt.NewReader(l.disk, l.ctrCipher), l.cipherWriter.GetCache(), l.cipherWriter.GetCacheDataOffset())
 	}
-    checksumReader := NewReaderWithCache(checksum.NewReader(underlying), l.checksumWriter.GetCache(), l.checksumWriter.GetCacheDataOffset())
+	checksumReader := NewReaderWithCache(checksum.NewReader(underlying), l.checksumWriter.GetCache(), l.checksumWriter.GetCacheDataOffset())
 	r := io.NewSectionReader(checksumReader, off, l.offWrite-off)
 	format := rowInDisk{numCol: len(l.fieldTypes)}
 	_, err = format.ReadFrom(r)
@@ -375,55 +374,55 @@ func (format *diskFormatRow) toMutRow(fields []*types.FieldType) MutRow {
 }
 
 type ReaderWithCache struct {
-    r io.ReaderAt
-    cacheOff int64
-    cache []byte
+	r        io.ReaderAt
+	cacheOff int64
+	cache    []byte
 }
 
 func NewReaderWithCache(r io.ReaderAt, cache []byte, cacheOff int64) *ReaderWithCache {
-    return &ReaderWithCache {
-        r : r,
-        cacheOff: cacheOff,
-        cache: cache,
-    }
+	return &ReaderWithCache{
+		r:        r,
+		cacheOff: cacheOff,
+		cache:    cache,
+	}
 }
 
 func (r *ReaderWithCache) ReadAt(p []byte, off int64) (readCnt int, err error) {
-    readCnt, err = r.r.ReadAt(p, off)
-    if err != io.EOF {
-        return readCnt, err
-    }
+	readCnt, err = r.r.ReadAt(p, off)
+	if err != io.EOF {
+		return readCnt, err
+	}
 
-    if len(p) == readCnt {
-        return readCnt, err
-    } else if len(p) < readCnt {
-        return readCnt, errors2.Trace(errors2.Errorf("cannot read more data than user requested(readCnt: %v, len(p): %v",
-        readCnt, len(p)))
-    }
+	if len(p) == readCnt {
+		return readCnt, err
+	} else if len(p) < readCnt {
+		return readCnt, errors2.Trace(errors2.Errorf("cannot read more data than user requested(readCnt: %v, len(p): %v",
+			readCnt, len(p)))
+	}
 
-    // When got here, user input is not filled fully, so we need read data from cache.
-    err = nil
-    if readCnt == 0 {
-        // readCnt == 0 means all user requested data resides in r.cache
-        beg := off - r.cacheOff
-        if beg < 0 {
-            panic("off must be greater than r.cacheOff when readCnt is 0")
-        }
-        end := int(beg) + len(p)
-        if end > len(r.cache) {
-            err = io.EOF
-            end = len(r.cache)
-        }
-        readCnt = copy(p, r.cache[beg:end])
-    } else {
-        // readCnt != 0 means only partial data of user requested resides in r.cache
-        p = p[readCnt:]
-        end := len(p)
-        if end > len(r.cache) {
-            err = io.EOF
-            end = len(r.cache)
-        }
-        readCnt = copy(p, r.cache[:end])
-    }
-    return readCnt, err
+	// When got here, user input is not filled fully, so we need read data from cache.
+	err = nil
+	if readCnt == 0 {
+		// readCnt == 0 means all user requested data resides in r.cache
+		beg := off - r.cacheOff
+		if beg < 0 {
+			panic("off must be greater than r.cacheOff when readCnt is 0")
+		}
+		end := int(beg) + len(p)
+		if end > len(r.cache) {
+			err = io.EOF
+			end = len(r.cache)
+		}
+		readCnt = copy(p, r.cache[beg:end])
+	} else {
+		// readCnt != 0 means only partial data of user requested resides in r.cache
+		p = p[readCnt:]
+		end := len(p)
+		if end > len(r.cache) {
+			err = io.EOF
+			end = len(r.cache)
+		}
+		readCnt = copy(p, r.cache[:end])
+	}
+	return readCnt, err
 }
