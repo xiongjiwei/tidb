@@ -188,6 +188,9 @@ func (s *CTEStorageRC) SetDone() {
 }
 
 func (s *CTEStorageRC) ResetData() error {
+    if s.filterDup {
+        s.ht = newConcurrentMapHashTable()
+    }
 	return s.rc.Reset()
 }
 
@@ -215,24 +218,15 @@ func (s *CTEStorageRC) GetIter() int {
 	return s.iter
 }
 
-// Swap data and metadata. not used for now.
-func (s *CTEStorageRC) swapAll(other *CTEStorageRC) (err error) {
-	s.refCnt, other.refCnt = other.refCnt, s.refCnt
-	s.rc, other.rc = other.rc, s.rc
-	s.mu, other.mu = other.mu, s.mu
-	s.done, other.done = other.done, s.done
-	s.iter, other.iter = other.iter, s.iter
-	s.sc, other.sc = other.sc, s.sc
-	return nil
-}
-
 func (s *CTEStorageRC) resetAll() error {
 	s.refCnt = -1
 	s.done = false
 	s.iter = 0
-	s.filterDup = false
 	s.sc = nil
-	// s.ht has no reset() method
+    if s.filterDup {
+        s.ht = newConcurrentMapHashTable()
+    }
+	s.filterDup = false
 	return s.rc.Reset()
 }
 
@@ -276,7 +270,7 @@ func (s *CTEStorageRC) filterAndAddHashTable(sc *stmtctx.StatementContext, chk *
 
 		tmpChkNoDup.AppendRow(row)
 
-		rowPtr := chunk.RowPtr{ChkIdx: uint32(0), RowIdx: uint32(0)}
+		rowPtr := chunk.RowPtr{ChkIdx: uint32(0), RowIdx: uint32(i)}
 		chkHt.Put(key, rowPtr)
         idxForOriRows = append(idxForOriRows, i)
 	}
@@ -296,9 +290,10 @@ func (s *CTEStorageRC) filterAndAddHashTable(sc *stmtctx.StatementContext, chk *
 			continue
 		}
 
+        rowIdx := finalChkNoDup.NumRows()
 		finalChkNoDup.AppendRow(row)
 
-		rowPtr := chunk.RowPtr{ChkIdx: uint32(chkIdx), RowIdx: uint32(i)}
+		rowPtr := chunk.RowPtr{ChkIdx: uint32(chkIdx), RowIdx: uint32(rowIdx)}
 		s.ht.Put(key, rowPtr)
 	}
 	return finalChkNoDup, nil
