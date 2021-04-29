@@ -80,7 +80,7 @@ type executorBuilder struct {
 	snapshotTSCached bool
 	err              error // err is set when there is error happened during Executor building process.
 	hasLock          bool
-	cteStorageMap    map[int]*cteStorages
+	cteStorageMap    map[int]*cteStorages // Different CTE may use same storage.
 }
 
 type cteStorages struct {
@@ -4053,7 +4053,6 @@ func (b *executorBuilder) buildCTE(v *plannercore.PhysicalCTE) Executor {
 	seedTypes := retTypes(seedExec)
 
 	// 2. build iterIntTbl
-	// TODO make it one method
 	iterOutTbl := NewCTEStorageRC(b.ctx.GetSessionVars().StmtCtx, v.CTE.IsDistinct)
 	maxChunkSize := b.ctx.GetSessionVars().MaxChunkSize
 	if b.err = iterOutTbl.OpenAndRef(seedTypes, maxChunkSize); b.err != nil {
@@ -4064,8 +4063,6 @@ func (b *executorBuilder) buildCTE(v *plannercore.PhysicalCTE) Executor {
 	// because recursive part may also use storage.
 	var resTbl CTEStorage = nil
 	var iterInTbl CTEStorage = nil
-	// TODO: expose member in CTEClass and PhysicalCTE
-	// 1. idForStorage 2. seedPlan/recurPlan 3. cte
 	storages, ok := b.cteStorageMap[v.CTE.IdForStorage]
 	if ok {
 		// storage already setup
@@ -4104,12 +4101,11 @@ func (b *executorBuilder) buildCTE(v *plannercore.PhysicalCTE) Executor {
 func (b *executorBuilder) buildCTETableReader(v *plannercore.PhysicalCTETable) Executor {
 	storages, ok := b.cteStorageMap[v.IdForStorage]
 	if !ok {
-		// TODO add cte name here
+		// TODO: we can add name in PhysicalCTETable, so the error msg will be more readable
 		b.err = errors.Errorf("iterInTbl should already be set up by CTEExec(id: %d)", v.IdForStorage)
 		return nil
 	}
 	iterInTbl := storages.iterInTbl
-	// TODO ref again
 	if b.err = iterInTbl.OpenAndRef(nil, b.ctx.GetSessionVars().MaxChunkSize); b.err != nil {
 		return nil
 	}

@@ -69,10 +69,6 @@ func (ctr *CtrCipher) stream(counter uint64) cipher.Stream {
 	return cipher.NewCTR(ctr.block, counterBuf)
 }
 
-func (ctr *CtrCipher) GetEncryptBlockSize() int {
-	return int(ctr.encryptBlockSize)
-}
-
 // Writer implements an io.WriteCloser, it encrypt data using AES before writing to the underlying object.
 type Writer struct {
 	err                error
