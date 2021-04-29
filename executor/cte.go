@@ -25,8 +25,9 @@ import (
 // Following diagram describes how CTEExec works.
 //
 // `iterInTbl` is shared by `CTEExec` and `CTETableReaderExec`.
-// `CTETableReaderExec` reads data from `iterInTbl`.
-// Output will be stored into `iterOutTbl` by `CTEExec`.
+// `CTETableReaderExec` reads data from `iterInTbl`,
+// and its output will be stored `iterOutTbl` by `CTEExec`.
+//
 // When an iteration ends, `CTEExec` will move all data from `iterOutTbl` into `iterInTbl`,
 // which will be the input for new iteration.
 // At the end of each iteration, data in `iterOutTbl` will also be added into `resTbl`.
@@ -47,6 +48,9 @@ import (
 //                   +---------------+iterInTbl |
 //                                   |          |
 //                                   +----------+
+
+var _ Executor = &CTEExec{}
+
 type CTEExec struct {
 	baseExecutor
 
@@ -59,7 +63,9 @@ type CTEExec struct {
 	iterInTbl  CTEStorage
 	iterOutTbl CTEStorage
 
+    // idx of chunk to read from resTbl.
 	chkIdx     int
+    // UNION ALL or UNION DISTINCT.
 	isDistinct bool
 	curIter    int
 }
@@ -90,7 +96,7 @@ func (e *CTEExec) Open(ctx context.Context) (err error) {
 	diskTracker.AttachTo(e.ctx.GetSessionVars().StmtCtx.DiskTracker)
 
 	if config.GetGlobalConfig().OOMUseTmpStorage {
-		// TODO: also record memory usage of iterInTbl and iterOutTbl
+		// TODO: also record memory usage of iterInTbl and iterOutTbl.
 		actionSpill := e.resTbl.ActionSpill()
 		e.ctx.GetSessionVars().StmtCtx.MemTracker.FallbackOldAndSetNewAction(actionSpill)
 	}
@@ -102,7 +108,7 @@ func (e *CTEExec) Next(ctx context.Context, req *chunk.Chunk) (err error) {
 	req.Reset()
 	e.resTbl.Lock()
 	if !e.resTbl.Done() {
-		// Compute seed part
+		// Compute seed part.
 		for {
 			chk := newFirstChunk(e.seedExec)
 			if err = Next(ctx, e.seedExec, chk); err != nil {
@@ -156,8 +162,6 @@ func (e *CTEExec) Next(ctx context.Context, req *chunk.Chunk) (err error) {
 				}
 			}
 		}
-
-		// TODO: defer?
 		e.resTbl.SetDone()
 	}
 	e.resTbl.Unlock()
