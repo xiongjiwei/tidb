@@ -29,6 +29,10 @@ type CTETableReaderExec struct {
 }
 
 func (e *CTETableReaderExec) Open(ctx context.Context) error {
+	seedTypes := e.base().retFieldTypes
+	if err := e.iterInTbl.OpenAndRef(seedTypes, e.maxChunkSize); err != nil {
+		return err
+	}
 	return e.baseExecutor.Open(ctx)
 }
 

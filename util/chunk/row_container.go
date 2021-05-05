@@ -256,6 +256,10 @@ func (c *RowContainer) ActionSpillForTest() *SpillDiskAction {
 	return c.actionSpill
 }
 
+func (c *RowContainer) GetActionSpillForTest() *SpillDiskAction {
+	return c.actionSpill
+}
+
 // SpillDiskAction implements memory.ActionOnExceed for chunk.List. If
 // the memory quota of a query is exceeded, SpillDiskAction.Action is
 // triggered.

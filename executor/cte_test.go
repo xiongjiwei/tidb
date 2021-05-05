@@ -15,12 +15,11 @@ package executor_test
 
 import (
 	"context"
-	_ "fmt"
+	"fmt"
 
 	"github.com/pingcap/check"
 
 	"github.com/pingcap/tidb/domain"
-	_ "github.com/pingcap/tidb/executor"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/session"
 	"github.com/pingcap/tidb/sessionctx"
@@ -89,7 +88,7 @@ func (test *CTETestSuite) TestBasicCTE(c *check.C) {
 		"union all " +
 		"select 2 c1 " +
 		"union all " +
-		"select c1 + 1 c1 from cte1 where c1 < 3) " +
+		"select c1 + 1 c1 from cte1 where c1 < 3 " +
 		"union all " +
 		"select c1 + 2 c1 from cte1 where c1 < 5) " +
 		"select * from cte1 order by c1")
@@ -97,6 +96,35 @@ func (test *CTETestSuite) TestBasicCTE(c *check.C) {
 }
 
 func (test *CTETestSuite) TestSpillToDisk(c *check.C) {
+	tk := testkit.NewTestKit(c, test.store)
+	tk.MustExec("use test;")
+
+	insertStr := "insert into t1 values(0, 0)"
+	for i := 1; i < 1000; i++ {
+		insertStr += fmt.Sprintf(", (%d, %d)", i, i)
+	}
+
+	tk.MustExec("drop table if exists t1;")
+	tk.MustExec("create table t1(c1 int, c2 int);")
+	tk.MustExec(insertStr)
+	tk.MustExec("set tidb_mem_quota_query = 50000;")
+	rows := tk.MustQuery("with recursive cte1 as ( " +
+		"select c1 from t1 " +
+		"union " +
+		"select c1 + 1 c1 from cte1 where c1 < 1000) " +
+		"select c1 from cte1;")
+
+	var resRows []string
+	for i := 0; i <= 1000; i++ {
+		resRows = append(resRows, fmt.Sprintf("%d", i))
+	}
+	rows.Check(testkit.Rows(resRows...))
+	memTracker := tk.Se.GetSessionVars().StmtCtx.MemTracker
+	diskTracker := tk.Se.GetSessionVars().StmtCtx.DiskTracker
+	c.Assert(memTracker.BytesConsumed(), check.Equals, int64(0))
+	c.Assert(memTracker.MaxConsumed(), check.Greater, int64(0))
+	c.Assert(diskTracker.BytesConsumed(), check.Equals, int64(0))
+	c.Assert(diskTracker.MaxConsumed(), check.Greater, int64(0))
 }
 
 func (test *CTETestSuite) TestUnionDistinct(c *check.C) {

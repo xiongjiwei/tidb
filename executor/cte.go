@@ -63,9 +63,10 @@ type CTEExec struct {
 	iterInTbl  CTEStorage
 	iterOutTbl CTEStorage
 
-    // idx of chunk to read from resTbl.
-	chkIdx     int
-    // UNION ALL or UNION DISTINCT.
+	// idx of chunk to read from resTbl.
+	chkIdx int
+
+	// UNION ALL or UNION DISTINCT.
 	isDistinct bool
 	curIter    int
 }
@@ -81,8 +82,18 @@ func (e *CTEExec) Open(ctx context.Context) (err error) {
 	if err = e.seedExec.Open(ctx); err != nil {
 		return err
 	}
+	seedTypes := e.seedExec.base().retFieldTypes
+	if err = e.resTbl.OpenAndRef(seedTypes, e.maxChunkSize); err != nil {
+		return err
+	}
+	if err = e.iterInTbl.OpenAndRef(seedTypes, e.maxChunkSize); err != nil {
+		return err
+	}
 	if e.recursiveExec != nil {
 		if err = e.recursiveExec.Open(ctx); err != nil {
+			return err
+		}
+		if err = e.iterOutTbl.OpenAndRef(seedTypes, e.maxChunkSize); err != nil {
 			return err
 		}
 	}
@@ -138,6 +149,12 @@ func (e *CTEExec) Next(ctx context.Context, req *chunk.Chunk) (err error) {
 						break
 					} else {
 						// Next iteration begins. Need use iterOutTbl as input of next iteration.
+						if err = e.recursiveExec.Close(); err != nil {
+							return err
+						}
+						if err = e.recursiveExec.Open(ctx); err != nil {
+							return err
+						}
 						for i := 0; i < e.iterOutTbl.NumChunks(); i++ {
 							if chk, err = e.iterOutTbl.GetChunk(i); err != nil {
 								return err

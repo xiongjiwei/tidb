@@ -209,6 +209,14 @@ func (s *CTEStorageRC) ActionSpill() memory.ActionOnExceed {
 	return s.rc.ActionSpill()
 }
 
+func (s *CTEStorageRC) ActionSpillForTest() memory.ActionOnExceed {
+	return s.rc.ActionSpillForTest()
+}
+
+func (s *CTEStorageRC) GetRCForTest() *chunk.RowContainer {
+	return s.rc
+}
+
 func (s *CTEStorageRC) SetIter(iter int) {
 	s.iter = iter
 }
@@ -240,8 +248,8 @@ func (s *CTEStorageRC) filterAndAddHashTable(sc *stmtctx.StatementContext, chk *
 	isNull := make([]bool, rows)
 	hasher := make([]hash.Hash64, rows)
 	for i := 0; i < rows; i++ {
-        // TODO: fnv.New64() just returns a int64 constant,
-        // but we can avoid calling it every time this func is called.
+		// TODO: fnv.New64() just returns a int64 constant,
+		// but we can avoid calling it every time this func is called.
 		hasher[i] = fnv.New64()
 	}
 

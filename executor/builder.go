@@ -4050,14 +4050,9 @@ func (b *executorBuilder) buildCTE(v *plannercore.PhysicalCTE) Executor {
 	if b.err != nil {
 		return nil
 	}
-	seedTypes := retTypes(seedExec)
 
 	// 2. build iterIntTbl
 	iterOutTbl := NewCTEStorageRC(b.ctx.GetSessionVars().StmtCtx, v.CTE.IsDistinct)
-	maxChunkSize := b.ctx.GetSessionVars().MaxChunkSize
-	if b.err = iterOutTbl.OpenAndRef(seedTypes, maxChunkSize); b.err != nil {
-		return nil
-	}
 
 	// We need build all storages first before build recursive part
 	// because recursive part may also use storage.
@@ -4071,12 +4066,6 @@ func (b *executorBuilder) buildCTE(v *plannercore.PhysicalCTE) Executor {
 	} else {
 		resTbl = NewCTEStorageRC(b.ctx.GetSessionVars().StmtCtx, v.CTE.IsDistinct)
 		iterInTbl = NewCTEStorageRC(b.ctx.GetSessionVars().StmtCtx, v.CTE.IsDistinct)
-		if b.err = resTbl.OpenAndRef(seedTypes, maxChunkSize); b.err != nil {
-			return nil
-		}
-		if b.err = iterInTbl.OpenAndRef(seedTypes, maxChunkSize); b.err != nil {
-			return nil
-		}
 		b.cteStorageMap[v.CTE.IdForStorage] = &cteStorages{resTbl: resTbl, iterInTbl: iterInTbl}
 	}
 
@@ -4103,10 +4092,6 @@ func (b *executorBuilder) buildCTETableReader(v *plannercore.PhysicalCTETable) E
 	if !ok {
 		// TODO: we can add name in PhysicalCTETable, so the error msg will be more readable
 		b.err = errors.Errorf("iterInTbl should already be set up by CTEExec(id: %d)", v.IdForStorage)
-		return nil
-	}
-	iterInTbl := storages.iterInTbl
-	if b.err = iterInTbl.OpenAndRef(nil, b.ctx.GetSessionVars().MaxChunkSize); b.err != nil {
 		return nil
 	}
 	return &CTETableReaderExec{
