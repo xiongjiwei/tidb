@@ -1144,7 +1144,7 @@ func init() {
 			ctx = opentracing.ContextWithSpan(ctx, span1)
 		}
 
-		e := &executorBuilder{is: is, ctx: sctx}
+		e := newExecutorBuilder(sctx, is)
 		exec := e.build(p)
 		if e.err != nil {
 			return nil, e.err
