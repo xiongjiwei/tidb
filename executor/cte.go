@@ -124,12 +124,13 @@ func (e *CTEExec) Next(ctx context.Context, req *chunk.Chunk) (err error) {
 			if err = e.iterInTbl.Add(chk); err != nil {
 				return err
 			}
-            // TODO: too tricky
-            close(e.iterInTbl.GetBegCh())
 			if err = e.resTbl.Add(chk); err != nil {
 				return err
 			}
 		}
+
+        // TODO: too tricky. This means iterInTbl fill done
+        close(e.iterInTbl.GetBegCh())
 
 		if e.recursiveExec != nil && e.iterInTbl.NumChunks() != 0 {
 			// Start to compute recursive part. Iteration 1 begins.
