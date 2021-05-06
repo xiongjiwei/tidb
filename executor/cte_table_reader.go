@@ -38,6 +38,10 @@ func (e *CTETableReaderExec) Open(ctx context.Context) error {
 
 func (e *CTETableReaderExec) Next(ctx context.Context, req *chunk.Chunk) (err error) {
 	req.Reset()
+
+    // TODO: this is too tricky
+    <- e.iterInTbl.GetBegCh()
+
 	if e.curIter != e.iterInTbl.GetIter() {
 		if e.curIter > e.iterInTbl.GetIter() {
 			return errors.Errorf("invalid iteration for CTETableReaderExec(e.curIter: %d, e.iterInTbl.GetIter(): %d", e.curIter, e.iterInTbl.GetIter())

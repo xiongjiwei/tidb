@@ -18,6 +18,7 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/config"
+	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/util/chunk"
 	"github.com/pingcap/tidb/util/memory"
 )
@@ -77,11 +78,12 @@ func (e *CTEExec) Open(ctx context.Context) (err error) {
 	}
 
 	if e.seedExec == nil {
-		return errors.New("seedExec for CTEExec is nil")
+		return errors.Trace(errors.New("seedExec for CTEExec is nil"))
 	}
 	if err = e.seedExec.Open(ctx); err != nil {
 		return err
 	}
+
 	seedTypes := e.seedExec.base().retFieldTypes
 	if err = e.resTbl.OpenAndRef(seedTypes, e.maxChunkSize); err != nil {
 		return err
@@ -89,6 +91,7 @@ func (e *CTEExec) Open(ctx context.Context) (err error) {
 	if err = e.iterInTbl.OpenAndRef(seedTypes, e.maxChunkSize); err != nil {
 		return err
 	}
+
 	if e.recursiveExec != nil {
 		if err = e.recursiveExec.Open(ctx); err != nil {
 			return err
@@ -96,22 +99,8 @@ func (e *CTEExec) Open(ctx context.Context) (err error) {
 		if err = e.iterOutTbl.OpenAndRef(seedTypes, e.maxChunkSize); err != nil {
 			return err
 		}
+        setupCTEStorageTracker(e.iterOutTbl, e.ctx)
 	}
-
-	memTracker := e.resTbl.GetMemTracker()
-	memTracker.SetLabel(memory.LabelForCTEStorage)
-	memTracker.AttachTo(e.ctx.GetSessionVars().StmtCtx.MemTracker)
-
-	diskTracker := e.resTbl.GetDiskTracker()
-	diskTracker.SetLabel(memory.LabelForCTEStorage)
-	diskTracker.AttachTo(e.ctx.GetSessionVars().StmtCtx.DiskTracker)
-
-	if config.GetGlobalConfig().OOMUseTmpStorage {
-		// TODO: also record memory usage of iterInTbl and iterOutTbl.
-		actionSpill := e.resTbl.ActionSpill()
-		e.ctx.GetSessionVars().StmtCtx.MemTracker.FallbackOldAndSetNewAction(actionSpill)
-	}
-
 	return nil
 }
 
@@ -119,6 +108,10 @@ func (e *CTEExec) Next(ctx context.Context, req *chunk.Chunk) (err error) {
 	req.Reset()
 	e.resTbl.Lock()
 	if !e.resTbl.Done() {
+        // e.resTbl and e.iterInTbl is shared by different CTEExec, so only setup once.
+        setupCTEStorageTracker(e.resTbl, e.ctx)
+        setupCTEStorageTracker(e.iterInTbl, e.ctx)
+
 		// Compute seed part.
 		for {
 			chk := newFirstChunk(e.seedExec)
@@ -131,6 +124,8 @@ func (e *CTEExec) Next(ctx context.Context, req *chunk.Chunk) (err error) {
 			if err = e.iterInTbl.Add(chk); err != nil {
 				return err
 			}
+            // TODO: too tricky
+            close(e.iterInTbl.GetBegCh())
 			if err = e.resTbl.Add(chk); err != nil {
 				return err
 			}
@@ -149,12 +144,6 @@ func (e *CTEExec) Next(ctx context.Context, req *chunk.Chunk) (err error) {
 						break
 					} else {
 						// Next iteration begins. Need use iterOutTbl as input of next iteration.
-						if err = e.recursiveExec.Close(); err != nil {
-							return err
-						}
-						if err = e.recursiveExec.Open(ctx); err != nil {
-							return err
-						}
 						for i := 0; i < e.iterOutTbl.NumChunks(); i++ {
 							if chk, err = e.iterOutTbl.GetChunk(i); err != nil {
 								return err
@@ -171,6 +160,14 @@ func (e *CTEExec) Next(ctx context.Context, req *chunk.Chunk) (err error) {
 						}
 						e.curIter++
 						e.iterInTbl.SetIter(e.curIter)
+                        // Make sure iterInTbl is setup before Close/Open,
+                        // because some executors will read iterInTbl in Open() (like IndexLookupJoin).
+						if err = e.recursiveExec.Close(); err != nil {
+							return err
+						}
+						if err = e.recursiveExec.Open(ctx); err != nil {
+							return err
+						}
 					}
 				} else {
 					if err = e.iterOutTbl.Add(chk); err != nil {
@@ -203,6 +200,9 @@ func (e *CTEExec) Close() (err error) {
 		if err = e.recursiveExec.Close(); err != nil {
 			return err
 		}
+        if err = e.iterOutTbl.DerefAndClose(); err != nil {
+            return err
+        }
 	}
 	if err = e.resTbl.DerefAndClose(); err != nil {
 		return err
@@ -210,9 +210,21 @@ func (e *CTEExec) Close() (err error) {
 	if err = e.iterInTbl.DerefAndClose(); err != nil {
 		return err
 	}
-	if err = e.iterOutTbl.DerefAndClose(); err != nil {
-		return err
-	}
 
 	return e.baseExecutor.Close()
+}
+
+func setupCTEStorageTracker(tbl CTEStorage, ctx sessionctx.Context) {
+    memTracker := tbl.GetMemTracker()
+    memTracker.SetLabel(memory.LabelForCTEStorage)
+    memTracker.AttachTo(ctx.GetSessionVars().StmtCtx.MemTracker)
+
+    diskTracker := tbl.GetDiskTracker()
+    diskTracker.SetLabel(memory.LabelForCTEStorage)
+    diskTracker.AttachTo(ctx.GetSessionVars().StmtCtx.DiskTracker)
+
+    if config.GetGlobalConfig().OOMUseTmpStorage {
+        actionSpill := tbl.ActionSpill()
+        ctx.GetSessionVars().StmtCtx.MemTracker.FallbackOldAndSetNewAction(actionSpill)
+    }
 }

@@ -63,6 +63,8 @@ type CTEStorage interface {
 	// User can check whether CTEStorage is filled first, if not, they can fill it.
 	Done() bool
 	SetDone()
+    // TODO: too trichy
+    GetBegCh() chan struct{}
 
 	ResetData() error
 	NumChunks() int
@@ -79,6 +81,7 @@ type CTEStorage interface {
 type CTEStorageRC struct {
 	// meta info
 	mu        sync.Mutex
+    begCh       chan struct{}
 	refCnt    int
 	done      bool
 	iter      int
@@ -93,7 +96,7 @@ type CTEStorageRC struct {
 }
 
 func NewCTEStorageRC(sc *stmtctx.StatementContext, filterDup bool) *CTEStorageRC {
-	return &CTEStorageRC{sc: sc, filterDup: filterDup}
+    return &CTEStorageRC{sc: sc, filterDup: filterDup, begCh: make(chan struct{})}
 }
 
 // OpenAndRef impl CTEStorage OpenAndRef interface
@@ -184,6 +187,10 @@ func (s *CTEStorageRC) Done() bool {
 
 func (s *CTEStorageRC) SetDone() {
 	s.done = true
+}
+
+func (s *CTEStorageRC) GetBegCh() chan struct{} {
+    return s.begCh
 }
 
 func (s *CTEStorageRC) ResetData() error {
