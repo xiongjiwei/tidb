@@ -128,6 +128,11 @@ func (e *CTEExec) Next(ctx context.Context, req *chunk.Chunk) (err error) {
 		if e.recursiveExec != nil && e.iterInTbl.NumChunks() != 0 {
 			// Start to compute recursive part. Iteration 1 begins.
 			// TODO: use session var
+			saveTruncateAsWarning := e.ctx.GetSessionVars().StmtCtx.TruncateAsWarning
+			e.ctx.GetSessionVars().StmtCtx.TruncateAsWarning = false
+			defer func() {
+				e.ctx.GetSessionVars().StmtCtx.TruncateAsWarning = saveTruncateAsWarning
+			}()
 			for e.curIter = 1; e.curIter < 1000; {
 				chk := newFirstChunk(e.recursiveExec)
 				if err = Next(ctx, e.recursiveExec, chk); err != nil {

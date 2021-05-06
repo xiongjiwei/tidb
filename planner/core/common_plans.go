@@ -1138,6 +1138,13 @@ func (e *Explain) explainPlanInRowFormat(p Plan, taskType, driverSide, indent st
 		if x.Plan != nil {
 			err = e.explainPlanInRowFormat(x.Plan, "root", "", indent, true)
 		}
+	case *PhysicalCTE:
+		if x.SeedPlan != nil {
+			err = e.explainPlanInRowFormat(x.SeedPlan, "root", "", childIndent, x.RecurPlan == nil)
+		}
+		if x.RecurPlan != nil {
+			err = e.explainPlanInRowFormat(x.RecurPlan, "root", "", childIndent, true)
+		}
 	}
 	return
 }
