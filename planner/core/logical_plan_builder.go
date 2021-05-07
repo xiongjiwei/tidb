@@ -3646,10 +3646,11 @@ func (b *PlanBuilder) buildDataSource(ctx context.Context, tn *ast.TableName, as
 				}
 
 				b.handleHelper.pushMap(nil)
-				p := LogicalCTE{cte: &CTEClass{IsDistinct: cte.isDistinct, seedPartLogicalPlan: cte.seedLP, recursivePartLogicalPlan: cte.recurLP, IdForStorage: cte.storageID, optFlag: cte.optFlag}}.Init(b.ctx, b.getSelectOffset())
+				p := LogicalCTE{tblOriginalName: tn.Name, tblAsName: tn.Name, cte: &CTEClass{IsDistinct: cte.isDistinct, seedPartLogicalPlan: cte.seedLP, recursivePartLogicalPlan: cte.recurLP, IdForStorage: cte.storageID, optFlag: cte.optFlag}}.Init(b.ctx, b.getSelectOffset())
 				p.SetSchema(cte.seedLP.Schema())
 				p.SetOutputNames(cte.seedLP.OutputNames())
 				if len(asName.String()) > 0 {
+					p.tblAsName = *asName
 					var on types.NameSlice
 					for _, name := range p.OutputNames() {
 						cpOn := *name
@@ -5835,7 +5836,7 @@ func (b *PlanBuilder) splitSeedAndRecursive(ctx context.Context, cte ast.ResultS
 		if err != nil {
 			return err
 		}
-		recurPart =  b.buildProjection4CTEUnion(ctx, cInfo.seedLP, recurPart)
+		recurPart = b.buildProjection4CTEUnion(ctx, cInfo.seedLP, recurPart)
 		if recurPart.Schema().Len() != cInfo.seedLP.Schema().Len() {
 			return ErrWrongNumberOfColumnsInSelect.GenWithStackByArgs()
 		}

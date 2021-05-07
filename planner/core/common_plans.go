@@ -1020,6 +1020,10 @@ func (e *Explain) RenderResult() error {
 			if err != nil {
 				return err
 			}
+			err = e.explainPlanInRowFormatCTE(e.TargetPlan, "root", "", "", true)
+			if err != nil {
+				return err
+			}
 		}
 	case ast.ExplainFormatDOT:
 		if physicalPlan, ok := e.TargetPlan.(PhysicalPlan); ok {
@@ -1032,6 +1036,28 @@ func (e *Explain) RenderResult() error {
 	default:
 		return errors.Errorf("explain format '%s' is not supported now", e.Format)
 	}
+	return nil
+}
+
+func (e *Explain) explainPlanInRowFormatCTE(p Plan, taskType, driverSide, indent string, isLastChild bool) (err error) {
+	if physPlan, ok := p.(PhysicalPlan); ok {
+		for i, p := range physPlan.Children() {
+			err = e.explainPlanInRowFormatCTE(p, taskType, "", indent, i == len(physPlan.Children())-1)
+		}
+	}
+
+	switch x := p.(type) {
+	case *PhysicalCTE:
+		e.prepareOperatorInfo(p, taskType, driverSide, indent, isLastChild)
+		childIndent := texttree.Indent4Child(indent, isLastChild)
+		if x.SeedPlan != nil {
+			err = e.explainPlanInRowFormat(x.SeedPlan, "root", "", childIndent, x.RecurPlan == nil)
+		}
+		if x.RecurPlan != nil {
+			err = e.explainPlanInRowFormat(x.RecurPlan, "root", "", childIndent, true)
+		}
+	}
+
 	return nil
 }
 
@@ -1137,13 +1163,6 @@ func (e *Explain) explainPlanInRowFormat(p Plan, taskType, driverSide, indent st
 	case *Execute:
 		if x.Plan != nil {
 			err = e.explainPlanInRowFormat(x.Plan, "root", "", indent, true)
-		}
-	case *PhysicalCTE:
-		if x.SeedPlan != nil {
-			err = e.explainPlanInRowFormat(x.SeedPlan, "root", "", childIndent, x.RecurPlan == nil)
-		}
-		if x.RecurPlan != nil {
-			err = e.explainPlanInRowFormat(x.RecurPlan, "root", "", childIndent, true)
 		}
 	}
 	return
