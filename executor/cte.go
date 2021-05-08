@@ -121,10 +121,10 @@ func (e *CTEExec) Next(ctx context.Context, req *chunk.Chunk) (err error) {
 			if chk.NumRows() == 0 {
 				break
 			}
-			if err = e.iterInTbl.Add(chk); err != nil {
+			if chk, err = e.iterInTbl.Add(chk); err != nil {
 				return err
 			}
-			if err = e.resTbl.Add(chk); err != nil {
+			if _, err = e.resTbl.Add(chk); err != nil {
 				return err
 			}
 		}
@@ -141,24 +141,25 @@ func (e *CTEExec) Next(ctx context.Context, req *chunk.Chunk) (err error) {
 					return err
 				}
 				if chk.NumRows() == 0 {
-					if e.iterOutTbl.NumChunks() == 0 {
-						break
-					} else {
+                    e.iterInTbl.ResetData()
+                    for i := 0; i < e.iterOutTbl.NumChunks(); i++ {
+                        if chk, err = e.iterOutTbl.GetChunk(i); err != nil {
+                            return err
+                        }
+                        if chk, err = e.resTbl.Add(chk); err != nil {
+                            return err
+                        }
+                        if _, err = e.iterInTbl.Add(chk); err != nil {
+                            return err
+                        }
+                    }
+                    if err = e.iterOutTbl.ResetData(); err != nil {
+                        return err
+                    }
+                    if e.iterInTbl.NumChunks() == 0 {
+                        break
+                    } else {
 						// Next iteration begins. Need use iterOutTbl as input of next iteration.
-						for i := 0; i < e.iterOutTbl.NumChunks(); i++ {
-							if chk, err = e.iterOutTbl.GetChunk(i); err != nil {
-								return err
-							}
-							if err = e.resTbl.Add(chk); err != nil {
-								return err
-							}
-						}
-						if err = e.iterInTbl.SwapData(e.iterOutTbl); err != nil {
-							return err
-						}
-						if err = e.iterOutTbl.ResetData(); err != nil {
-							return err
-						}
 						e.curIter++
 						e.iterInTbl.SetIter(e.curIter)
                         // Make sure iterInTbl is setup before Close/Open,
@@ -169,9 +170,9 @@ func (e *CTEExec) Next(ctx context.Context, req *chunk.Chunk) (err error) {
 						if err = e.recursiveExec.Open(ctx); err != nil {
 							return err
 						}
-					}
+                    }
 				} else {
-					if err = e.iterOutTbl.Add(chk); err != nil {
+					if _, err = e.iterOutTbl.Add(chk); err != nil {
 						return err
 					}
 				}

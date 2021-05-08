@@ -51,7 +51,7 @@ type CTEStorage interface {
 
 	// Data will first resides in RAM, when exceeds limit, will spill all data to disk automatically
 	// Memory limit is control by memTracker.
-	Add(chk *chunk.Chunk) error
+	Add(chk *chunk.Chunk) (*chunk.Chunk, error)
 
 	GetChunk(chkIdx int) (*chunk.Chunk, error)
 
@@ -150,19 +150,19 @@ func (s *CTEStorageRC) SwapData(other CTEStorage) (err error) {
 }
 
 // Add impl CTEStorage Add interface
-func (s *CTEStorageRC) Add(chk *chunk.Chunk) (err error) {
+func (s *CTEStorageRC) Add(chk *chunk.Chunk) (addedChk *chunk.Chunk, err error) {
 	if !s.valid() {
-		return errors.Trace(errors.New("CTEStorage is not valid"))
+		return nil, errors.Trace(errors.New("CTEStorage is not valid"))
 	}
 	if s.filterDup {
 		if chk, err = s.filterAndAddHashTable(s.sc, chk); err != nil {
-			return err
-		}
-		if chk.NumRows() == 0 {
-			return nil
+			return nil, err
 		}
 	}
-	return s.rc.Add(chk)
+    if chk.NumRows() == 0 {
+        return chk, nil
+    }
+	return chk, s.rc.Add(chk)
 }
 
 // GetChunk impl CTEStorage GetChunk interface
@@ -250,6 +250,9 @@ func (s *CTEStorageRC) valid() bool {
 
 func (s *CTEStorageRC) filterAndAddHashTable(sc *stmtctx.StatementContext, chk *chunk.Chunk) (finalChkNoDup *chunk.Chunk, err error) {
 	rows := chk.NumRows()
+    if rows == 0 {
+        return chk, nil
+    }
 
 	buf := make([]byte, 1)
 	isNull := make([]bool, rows)
