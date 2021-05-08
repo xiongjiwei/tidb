@@ -96,7 +96,7 @@ type CTEStorageRC struct {
 }
 
 func NewCTEStorageRC(sc *stmtctx.StatementContext, filterDup bool) *CTEStorageRC {
-    return &CTEStorageRC{sc: sc, filterDup: filterDup, begCh: make(chan struct{})}
+    return &CTEStorageRC{sc: sc, filterDup: filterDup}
 }
 
 // OpenAndRef impl CTEStorage OpenAndRef interface
@@ -108,6 +108,8 @@ func (s *CTEStorageRC) OpenAndRef(fieldType []*types.FieldType, chkSize int) (er
 		s.tp = fieldType
 		s.rc = chunk.NewRowContainer(fieldType, chkSize)
 		s.refCnt = 1
+        s.begCh = make(chan struct{})
+        s.iter = 0
 		if s.filterDup {
 			s.ht = newConcurrentMapHashTable()
 		}
@@ -124,6 +126,7 @@ func (s *CTEStorageRC) DerefAndClose() (err error) {
 	}
 	s.refCnt -= 1
 	if s.refCnt == 0 {
+        // TODO: unreg memtracker
 		if err = s.rc.Close(); err != nil {
 			return err
 		}
@@ -237,11 +240,16 @@ func (s *CTEStorageRC) resetAll() error {
 	s.done = false
 	s.iter = 0
 	s.sc = nil
+    s.begCh = nil
 	if s.filterDup {
-		s.ht = newConcurrentMapHashTable()
+		s.ht = nil
 	}
 	s.filterDup = false
-	return s.rc.Reset()
+    if err := s.rc.Reset(); err != nil {
+        return err
+    }
+    s.rc = nil
+    return nil
 }
 
 func (s *CTEStorageRC) valid() bool {

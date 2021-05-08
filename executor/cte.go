@@ -73,6 +73,7 @@ type CTEExec struct {
 }
 
 func (e *CTEExec) Open(ctx context.Context) (err error) {
+    e.reset()
 	if err := e.baseExecutor.Open(ctx); err != nil {
 		return err
 	}
@@ -113,7 +114,8 @@ func (e *CTEExec) Next(ctx context.Context, req *chunk.Chunk) (err error) {
         setupCTEStorageTracker(e.iterInTbl, e.ctx)
 
 		// Compute seed part.
-		for {
+        e.iterInTbl.SetIter(e.curIter)
+        for {
 			chk := newFirstChunk(e.seedExec)
 			if err = Next(ctx, e.seedExec, chk); err != nil {
 				return err
@@ -195,6 +197,7 @@ func (e *CTEExec) Next(ctx context.Context, req *chunk.Chunk) (err error) {
 }
 
 func (e *CTEExec) Close() (err error) {
+    e.reset()
 	if err = e.seedExec.Close(); err != nil {
 		return err
 	}
@@ -214,6 +217,11 @@ func (e *CTEExec) Close() (err error) {
 	}
 
 	return e.baseExecutor.Close()
+}
+
+func (e *CTEExec) reset() {
+    e.curIter = 0
+    e.chkIdx = 0
 }
 
 func setupCTEStorageTracker(tbl CTEStorage, ctx sessionctx.Context) {

@@ -29,6 +29,7 @@ type CTETableReaderExec struct {
 }
 
 func (e *CTETableReaderExec) Open(ctx context.Context) error {
+    e.reset()
 	seedTypes := e.base().retFieldTypes
 	if err := e.iterInTbl.OpenAndRef(seedTypes, e.maxChunkSize); err != nil {
 		return err
@@ -42,9 +43,12 @@ func (e *CTETableReaderExec) Next(ctx context.Context, req *chunk.Chunk) (err er
     // TODO: this is too tricky
     <- e.iterInTbl.GetBegCh()
 
+    // We should read `iterInTbl` from the begining when the next iteration starts.
+    // Can not directly judge whether to start the next iteration based on e.chkIdx,
+    // because some operators(Selection) may use forloop to read all data in `iterInTbl`.
 	if e.curIter != e.iterInTbl.GetIter() {
 		if e.curIter > e.iterInTbl.GetIter() {
-			return errors.Errorf("invalid iteration for CTETableReaderExec(e.curIter: %d, e.iterInTbl.GetIter(): %d", e.curIter, e.iterInTbl.GetIter())
+			return errors.Errorf("invalid iteration for CTETableReaderExec(e.curIter: %d, e.iterInTbl.GetIter(): %d)", e.curIter, e.iterInTbl.GetIter())
 		}
 		e.chkIdx = 0
 		e.curIter = e.iterInTbl.GetIter()
@@ -62,8 +66,14 @@ func (e *CTETableReaderExec) Next(ctx context.Context, req *chunk.Chunk) (err er
 }
 
 func (e *CTETableReaderExec) Close() (err error) {
+    e.reset()
 	if err = e.iterInTbl.DerefAndClose(); err != nil {
 		return err
 	}
 	return e.baseExecutor.Close()
+}
+
+func (e *CTETableReaderExec) reset() {
+    e.chkIdx = 0
+    e.curIter = 0
 }

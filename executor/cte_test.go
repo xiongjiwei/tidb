@@ -93,6 +93,15 @@ func (test *CTETestSuite) TestBasicCTE(c *check.C) {
 		"select c1 + 2 c1 from cte1 where c1 < 5) " +
 		"select * from cte1 order by c1")
 	rows.Check(testkit.Rows("1", "2", "2", "3", "3", "3", "4", "4", "5", "5", "5", "6", "6"))
+
+    tk.MustExec("drop table if exists t1;")
+    tk.MustExec("create table t1(a int);")
+    tk.MustExec("insert into t1 values(1);")
+    tk.MustExec("insert into t1 values(2);")
+    rows = tk.MustQuery("SELECT * FROM t1 dt WHERE EXISTS(WITH RECURSIVE qn AS (SELECT a*0 AS b UNION ALL SELECT b+1 FROM qn WHERE b=0) SELECT * FROM qn WHERE b=a);")
+    rows.Check(testkit.Rows("1"))
+    rows = tk.MustQuery("SELECT * FROM t1 dt WHERE EXISTS( WITH RECURSIVE qn AS (SELECT a*0 AS b UNION ALL SELECT b+1 FROM qn WHERE b=0 or b = 1) SELECT * FROM qn WHERE b=a );")
+    rows.Check(testkit.Rows("1", "2"))
 }
 
 func (test *CTETestSuite) TestSpillToDisk(c *check.C) {

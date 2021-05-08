@@ -108,13 +108,13 @@ func (test *CTEStorageRCTestSuite) TestAddAndGetChunk(c *check.C) {
 		inChk.AppendInt64(0, int64(i))
 	}
 
-	err := storage.Add(inChk)
+	_, err := storage.Add(inChk)
 	c.Assert(err, check.NotNil)
 
 	err = storage.OpenAndRef(fields, chkSize)
 	c.Assert(err, check.IsNil)
 
-	err = storage.Add(inChk)
+	_, err = storage.Add(inChk)
 	c.Assert(err, check.IsNil)
 
 	outChk, err1 := storage.GetChunk(0)
@@ -136,7 +136,7 @@ func testFilterDuplicated(c *check.C, storage executor.CTEStorage) {
 		inChk.AppendInt64(0, int64(0))
 	}
 
-	err := storage.Add(inChk)
+	_, err := storage.Add(inChk)
 	c.Assert(err, check.IsNil)
 
 	outChk, err := storage.GetChunk(0)
@@ -153,7 +153,7 @@ func testFilterDuplicated(c *check.C, storage executor.CTEStorage) {
 		inChk.AppendInt64(0, int64(1))
 	}
 
-	err = storage.Add(inChk)
+	_, err = storage.Add(inChk)
 	outChk, err = storage.GetChunk(1)
 	c.Assert(err, check.IsNil)
 	tmpOut64s := outChk.Column(0).Int64s()
@@ -174,7 +174,7 @@ func testFilterDuplicated(c *check.C, storage executor.CTEStorage) {
 		inChk.AppendInt64(0, int64(2))
 	}
 
-	err = storage.Add(inChk)
+	_, err = storage.Add(inChk)
 	outChk, err = storage.GetChunk(2)
 	c.Assert(err, check.IsNil)
 	tmpOut64s = outChk.Column(0).Int64s()
@@ -214,7 +214,7 @@ func (test *CTEStorageRCTestSuite) TestSpillToDisk(c *check.C) {
 	diskTracker := storage.GetDiskTracker()
 
 	// all in memory
-	err = storage.Add(inChk)
+	_, err = storage.Add(inChk)
 	c.Assert(err, check.IsNil)
 	outChk, err1 := storage.GetChunk(0)
 	c.Assert(err1, check.IsNil)
@@ -228,7 +228,7 @@ func (test *CTEStorageRCTestSuite) TestSpillToDisk(c *check.C) {
 	c.Assert(diskTracker.MaxConsumed(), check.Equals, int64(0))
 
 	// add again, will trigger spill to disk
-	err = storage.Add(inChk)
+	_, err = storage.Add(inChk)
 	c.Assert(err, check.IsNil)
 	tmp.(*executor.CTEStorageRC).GetRCForTest().GetActionSpillForTest().WaitForTest()
 	c.Assert(memTracker.BytesConsumed(), check.Equals, int64(0))
