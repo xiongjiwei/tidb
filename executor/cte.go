@@ -114,7 +114,11 @@ func (e *CTEExec) Next(ctx context.Context, req *chunk.Chunk) (err error) {
         setupCTEStorageTracker(e.iterInTbl, e.ctx)
 
 		// Compute seed part.
+        e.curIter = 0
         e.iterInTbl.SetIter(e.curIter)
+        if e.curIter >= e.ctx.GetSessionVars().CTEMaxRecursionDepth {
+            return ErrCTEMaxRecursionDepth.GenWithStackByArgs(e.curIter + 1)
+        }
         for {
 			chk := newFirstChunk(e.seedExec)
 			if err = Next(ctx, e.seedExec, chk); err != nil {
@@ -132,12 +136,12 @@ func (e *CTEExec) Next(ctx context.Context, req *chunk.Chunk) (err error) {
 		}
 
         // TODO: too tricky. This means iterInTbl fill done
+        e.curIter++
         close(e.iterInTbl.GetBegCh())
 
 		if e.recursiveExec != nil && e.iterInTbl.NumChunks() != 0 {
 			// Start to compute recursive part. Iteration 1 begins.
-			// TODO: use session var
-			for e.curIter = 1; e.curIter < 1000; {
+			for {
 				chk := newFirstChunk(e.recursiveExec)
 				if err = Next(ctx, e.recursiveExec, chk); err != nil {
 					return err
@@ -161,6 +165,9 @@ func (e *CTEExec) Next(ctx context.Context, req *chunk.Chunk) (err error) {
                     if e.iterInTbl.NumChunks() == 0 {
                         break
                     } else {
+                        if e.curIter >= e.ctx.GetSessionVars().CTEMaxRecursionDepth {
+                            return ErrCTEMaxRecursionDepth.GenWithStackByArgs(e.curIter + 1)
+                        }
 						// Next iteration begins. Need use iterOutTbl as input of next iteration.
 						e.curIter++
 						e.iterInTbl.SetIter(e.curIter)
