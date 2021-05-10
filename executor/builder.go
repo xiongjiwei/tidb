@@ -4058,7 +4058,7 @@ func (b *executorBuilder) buildCTE(v *plannercore.PhysicalCTE) Executor {
 	// because recursive part may also use storage.
 	var resTbl CTEStorage = nil
 	var iterInTbl CTEStorage = nil
-	storages, ok := b.cteStorageMap[v.CTE.IdForStorage]
+	storages, ok := b.cteStorageMap[v.CTE.IDForStorage]
 	if ok {
 		// storage already setup.
 		resTbl = storages.resTbl
@@ -4066,7 +4066,7 @@ func (b *executorBuilder) buildCTE(v *plannercore.PhysicalCTE) Executor {
 	} else {
 		resTbl = NewCTEStorageRC(b.ctx.GetSessionVars().StmtCtx, v.CTE.IsDistinct)
 		iterInTbl = NewCTEStorageRC(b.ctx.GetSessionVars().StmtCtx, v.CTE.IsDistinct)
-		b.cteStorageMap[v.CTE.IdForStorage] = &cteStorages{resTbl: resTbl, iterInTbl: iterInTbl}
+		b.cteStorageMap[v.CTE.IDForStorage] = &cteStorages{resTbl: resTbl, iterInTbl: iterInTbl}
 	}
 
 	// 3. build recursive part.
@@ -4088,10 +4088,10 @@ func (b *executorBuilder) buildCTE(v *plannercore.PhysicalCTE) Executor {
 }
 
 func (b *executorBuilder) buildCTETableReader(v *plannercore.PhysicalCTETable) Executor {
-	storages, ok := b.cteStorageMap[v.IdForStorage]
+	storages, ok := b.cteStorageMap[v.IDForStorage]
 	if !ok {
 		// TODO: we can add name in PhysicalCTETable, so the error msg will be more readable.
-		b.err = errors.Errorf("iterInTbl should already be set up by CTEExec(id: %d)", v.IdForStorage)
+		b.err = errors.Errorf("iterInTbl should already be set up by CTEExec(id: %d)", v.IDForStorage)
 		return nil
 	}
 	return &CTETableReaderExec{
