@@ -20,6 +20,7 @@ import (
 	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/util/chunk"
+	"github.com/pingcap/tidb/util/disk"
 	"github.com/pingcap/tidb/util/memory"
 )
 
@@ -70,6 +71,9 @@ type CTEExec struct {
 	// UNION ALL or UNION DISTINCT.
 	isDistinct bool
 	curIter    int
+
+	memTracker  *memory.Tracker
+	diskTracker *memory.Tracker
 }
 
 func (e *CTEExec) Open(ctx context.Context) (err error) {
@@ -93,6 +97,10 @@ func (e *CTEExec) Open(ctx context.Context) (err error) {
 		return err
 	}
 
+	e.memTracker = memory.NewTracker(e.id, -1)
+	e.diskTracker = disk.NewTracker(e.id, -1)
+	e.memTracker.AttachTo(e.ctx.GetSessionVars().StmtCtx.MemTracker)
+	e.diskTracker.AttachTo(e.ctx.GetSessionVars().StmtCtx.DiskTracker)
 	if e.recursiveExec != nil {
 		if err = e.recursiveExec.Open(ctx); err != nil {
 			return err
@@ -100,7 +108,7 @@ func (e *CTEExec) Open(ctx context.Context) (err error) {
 		if err = e.iterOutTbl.OpenAndRef(seedTypes, e.maxChunkSize); err != nil {
 			return err
 		}
-        setupCTEStorageTracker(e.iterOutTbl, e.ctx)
+        setupCTEStorageTracker(e.iterOutTbl, e.ctx, e.memTracker, e.diskTracker)
 	}
 	return nil
 }
@@ -110,8 +118,8 @@ func (e *CTEExec) Next(ctx context.Context, req *chunk.Chunk) (err error) {
 	e.resTbl.Lock()
 	if !e.resTbl.Done() {
         // e.resTbl and e.iterInTbl is shared by different CTEExec, so only setup once.
-        setupCTEStorageTracker(e.resTbl, e.ctx)
-        setupCTEStorageTracker(e.iterInTbl, e.ctx)
+        setupCTEStorageTracker(e.resTbl, e.ctx, e.memTracker, e.diskTracker)
+        setupCTEStorageTracker(e.iterInTbl, e.ctx, e.memTracker, e.diskTracker)
 
 		// Compute seed part.
         e.curIter = 0
@@ -231,14 +239,14 @@ func (e *CTEExec) reset() {
     e.chkIdx = 0
 }
 
-func setupCTEStorageTracker(tbl CTEStorage, ctx sessionctx.Context) {
+func setupCTEStorageTracker(tbl CTEStorage, ctx sessionctx.Context, parentMemTracker *memory.Tracker, parentDiskTracker *disk.Tracker) {
     memTracker := tbl.GetMemTracker()
     memTracker.SetLabel(memory.LabelForCTEStorage)
-    memTracker.AttachTo(ctx.GetSessionVars().StmtCtx.MemTracker)
+    memTracker.AttachTo(parentMemTracker)
 
     diskTracker := tbl.GetDiskTracker()
     diskTracker.SetLabel(memory.LabelForCTEStorage)
-    diskTracker.AttachTo(ctx.GetSessionVars().StmtCtx.DiskTracker)
+    diskTracker.AttachTo(parentDiskTracker)
 
     if config.GetGlobalConfig().OOMUseTmpStorage {
         actionSpill := tbl.ActionSpill()
