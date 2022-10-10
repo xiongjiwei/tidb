@@ -839,6 +839,8 @@ const (
 	TiDBDDLDiskQuota = "tidb_ddl_disk_quota"
 	// TiDBDDLEnableCoprRead is used to control whether to read with coprocessor for adding index.
 	TiDBDDLEnableCoprRead = "tidb_ddl_enable_copr_read"
+	// TiDBEnableGOGCTuner is to enable GOGC tuner. it can tuner GOGC
+	TiDBEnableGOGCTuner = "tidb_enable_gogc_tuner"
 )
 
 // TiDB intentional limits
@@ -1075,6 +1077,7 @@ const (
 	DefTiDBForeignKeyChecks                         = false
 	DefTiDBOptRangeMaxSize                          = 0
 	DefTiDBCostModelVer                             = 1
+	DefTiDBEnableGOGCTuner                          = true
 )
 
 // Process global variables.
