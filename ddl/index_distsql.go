@@ -146,7 +146,7 @@ func newCopContext(tblInfo *model.TableInfo, idxInfo *model.IndexInfo, sessCtx s
 		colInfos:         colInfos,
 		fieldTps:         fieldTps,
 		sessCtx:          sessCtx,
-		pushDownEncoding: variable.EnableCoprRead.Load() == "2",
+		pushDownEncoding: variable.EnableCoprRead.Load() == "2" || variable.EnableCoprRead.Load() == "3",
 	}
 	return copCtx
 }
