@@ -47,6 +47,7 @@ import (
 	"github.com/pingcap/tidb/util/dbterror"
 	"github.com/pingcap/tidb/util/logutil"
 	decoder "github.com/pingcap/tidb/util/rowDecoder"
+	"github.com/pingcap/tipb/go-tipb"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/tikv/client-go/v2/oracle"
 	"github.com/tikv/client-go/v2/tikv"
@@ -1174,7 +1175,7 @@ type baseIndexWorker struct {
 	// The following attributes are used to reduce memory allocation.
 	defaultVals  []types.Datum
 	idxRecords   []*indexRecord
-	idxKVRecords []idxKV
+	idxKVRecords []tipb.KVPair
 	rowMap       map[int64]types.Datum
 	rowDecoder   *decoder.RowDecoder
 
@@ -1498,7 +1499,7 @@ func (w *addIndexWorker) BackfillDataInTxn(handleRange reorgBackfillTask) (taskC
 
 		var (
 			idxRecords []*indexRecord
-			idxKVs     []idxKV
+			idxKVs     []tipb.KVPair
 			nextKey    kv.Key
 			taskDone   bool
 		)
@@ -1593,19 +1594,19 @@ func (w *addIndexWorker) createIndexRecords(idxRecords []*indexRecord, taskCtx *
 	return nil
 }
 
-func (w *addIndexWorker) createIndexKVs(idxKVs []idxKV, taskCtx *backfillTaskContext, txn kv.Transaction) error {
+func (w *addIndexWorker) createIndexKVs(idxKVs []tipb.KVPair, taskCtx *backfillTaskContext, txn kv.Transaction) error {
 	defer injectSpan(w.reorgInfo.Job.ID, fmt.Sprintf("%s-%d", "create-records", w.id))()
 	for _, idxKV := range idxKVs {
 		taskCtx.scanCount++
 		// Create the index.
 		if w.writerCtx == nil {
-			err := txn.GetMemBuffer().Set(idxKV.key, idxKV.val)
+			err := txn.GetMemBuffer().Set(idxKV.Key, idxKV.Value)
 			if err != nil {
 				return errors.Trace(err)
 			}
 		} else { // The lightning environment is ready.
 			if len(idxKVs) != 0 {
-				err := w.writerCtx.WriteRow(idxKV.key, idxKV.val)
+				err := w.writerCtx.WriteRow(idxKV.Key, idxKV.Value)
 				if err != nil {
 					return errors.Trace(err)
 				}

@@ -53,7 +53,7 @@ type copContext struct {
 type copReqReaders struct {
 	tasksCh     chan *reorgBackfillTask
 	resultsCh   chan *indexRecord
-	kvResultsCh chan idxKV
+	kvResultsCh chan tipb.KVPair
 	results     generic.SyncMap[string, error]
 }
 
@@ -64,7 +64,7 @@ type copReqReader struct {
 	srcChunk *chunk.Chunk
 
 	idxRecordChan chan *indexRecord
-	idxKVChan     chan idxKV
+	idxKVChan     chan tipb.KVPair
 	results       *generic.SyncMap[string, error]
 }
 
@@ -98,7 +98,7 @@ func newCopReqReaders(ctx context.Context, copCtx *copContext, jobID int64, read
 		results: generic.NewSyncMap[string, error](readerCnt),
 	}
 	if copCtx.pushDownEncoding {
-		p.kvResultsCh = make(chan idxKV, int(variable.MaxDDLReorgBatchSize))
+		p.kvResultsCh = make(chan tipb.KVPair, int(variable.MaxDDLReorgBatchSize))
 	} else {
 		p.resultsCh = make(chan *indexRecord, int(variable.MaxDDLReorgBatchSize))
 	}
@@ -286,7 +286,7 @@ type idxKV struct {
 	val []byte
 }
 
-func (c *copContext) sendEncodedIdxRecords(ctx context.Context, ch chan idxKV, startTS uint64,
+func (c *copContext) sendEncodedIdxRecords(ctx context.Context, ch chan tipb.KVPair, startTS uint64,
 	start, end kv.Key, traceID int64, wid int) error {
 	resp, err := c.buildScanIndexKV(ctx, startTS, start, end)
 	if err != nil {
@@ -312,12 +312,12 @@ func (c *copContext) sendEncodedIdxRecords(ctx context.Context, ch chan idxKV, s
 		}
 		finish()
 		for i := 0; i < len(colResp.Kv); i++ {
-			ch <- idxKV{key: colResp.Kv[i].Key, val: colResp.Kv[i].Value}
+			ch <- *colResp.Kv[i]
 		}
 	}
 }
 
-func fetchRowColValsFromCop[V *indexRecord | idxKV](w *addIndexWorker, ch chan V, buf []V,
+func fetchRowColValsFromCop[V *indexRecord | tipb.KVPair](w *addIndexWorker, ch chan V, buf []V,
 	handleRange reorgBackfillTask) ([]V, kv.Key, bool, error) {
 	taskDone := false
 	var err error
