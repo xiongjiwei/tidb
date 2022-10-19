@@ -1826,7 +1826,7 @@ var defaultSysVars = []*SysVar{
 		EnableFastReorg.Store(TiDBOptOn(val))
 		return nil
 	}},
-	{Scope: ScopeGlobal, Name: TiDBDDLEnableCoprRead, Value: DefTiDBDDLEnableCoprRead, PossibleValues: []string{"0", "1", "2"}, Type: TypeEnum, GetGlobal: func(sv *SessionVars) (string, error) {
+	{Scope: ScopeGlobal, Name: TiDBDDLEnableCoprRead, Value: DefTiDBDDLEnableCoprRead, PossibleValues: []string{"0", "1", "2", "3"}, Type: TypeEnum, GetGlobal: func(sv *SessionVars) (string, error) {
 		return EnableCoprRead.Load(), nil
 	}, SetGlobal: func(s *SessionVars, val string) error {
 		EnableCoprRead.Store(val)
