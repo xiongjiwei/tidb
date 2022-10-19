@@ -1597,7 +1597,6 @@ func (w *addIndexWorker) createIndexRecords(idxRecords []*indexRecord, taskCtx *
 func (w *addIndexWorker) createIndexKVs(idxKVs []tipb.KVPair, taskCtx *backfillTaskContext, txn kv.Transaction) error {
 	defer injectSpan(w.reorgInfo.Job.ID, fmt.Sprintf("%s-%d", "create-records", w.id))()
 	for _, idxKV := range idxKVs {
-		logutil.BgLogger().Warn("111111111111", zap.Any("key", idxKV.Key), zap.Any("value", idxKV.Value))
 		taskCtx.scanCount++
 		// Create the index.
 		if w.writerCtx == nil {

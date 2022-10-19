@@ -281,11 +281,6 @@ func (c *copContext) sendIdxRecords(ctx context.Context, ch chan *indexRecord, s
 	}
 }
 
-type idxKV struct {
-	key kv.Key
-	val []byte
-}
-
 func (c *copContext) sendEncodedIdxRecords(ctx context.Context, ch chan tipb.KVPair, startTS uint64,
 	start, end kv.Key, traceID int64, wid int) error {
 	resp, err := c.buildScanIndexKV(ctx, startTS, start, end)
