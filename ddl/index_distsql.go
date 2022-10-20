@@ -48,12 +48,14 @@ type copContext struct {
 	fieldTps         []*types.FieldType
 	sessCtx          sessionctx.Context
 	pushDownEncoding bool
+	sortInTiKV       bool
 }
 
 type copReqReaders struct {
 	tasksCh     chan *reorgBackfillTask
 	resultsCh   chan *indexRecord
-	kvResultsCh chan tipb.KVPair
+	kvResultsCh chan *tipb.KVPair
+	sortKvResCh chan []*tipb.KVPair
 	results     generic.SyncMap[string, error]
 }
 
@@ -64,7 +66,8 @@ type copReqReader struct {
 	srcChunk *chunk.Chunk
 
 	idxRecordChan chan *indexRecord
-	idxKVChan     chan tipb.KVPair
+	idxKVChan     chan *tipb.KVPair
+	sortIdxKVChan chan []*tipb.KVPair
 	results       *generic.SyncMap[string, error]
 }
 
@@ -79,7 +82,7 @@ func (c *copReqReader) run(ctx context.Context, wg *sync.WaitGroup, tasks chan *
 			finish := injectSpan(c.traceID, fmt.Sprintf("cop-read-%d", c.id))
 			err := kv.RunInNewTxn(ctx, c.copCtx.sessCtx.GetStore(), true, func(ctx context.Context, txn kv.Transaction) error {
 				if c.copCtx.pushDownEncoding {
-					return c.copCtx.sendEncodedIdxRecords(ctx, c.idxKVChan, txn.StartTS(),
+					return c.copCtx.sendEncodedIdxRecords(ctx, c.idxKVChan, c.sortIdxKVChan, txn.StartTS(),
 						task.startKey, task.excludedEndKey(), c.traceID, c.id)
 				} else {
 					return c.copCtx.sendIdxRecords(ctx, c.idxRecordChan, c.srcChunk, txn.StartTS(),
@@ -98,7 +101,10 @@ func newCopReqReaders(ctx context.Context, copCtx *copContext, jobID int64, read
 		results: generic.NewSyncMap[string, error](readerCnt),
 	}
 	if copCtx.pushDownEncoding {
-		p.kvResultsCh = make(chan tipb.KVPair, int(variable.MaxDDLReorgBatchSize))
+		p.kvResultsCh = make(chan *tipb.KVPair, int(variable.MaxDDLReorgBatchSize))
+		if copCtx.sortInTiKV {
+			p.sortKvResCh = make(chan []*tipb.KVPair, 20)
+		}
 	} else {
 		p.resultsCh = make(chan *indexRecord, int(variable.MaxDDLReorgBatchSize))
 	}
@@ -111,6 +117,7 @@ func newCopReqReaders(ctx context.Context, copCtx *copContext, jobID int64, read
 			copCtx:        copCtx,
 			idxRecordChan: p.resultsCh,
 			idxKVChan:     p.kvResultsCh,
+			sortIdxKVChan: p.sortKvResCh,
 			srcChunk:      chunk.NewChunkWithCapacity(copCtx.fieldTps, 1024),
 			results:       &p.results,
 		}
@@ -147,6 +154,7 @@ func newCopContext(tblInfo *model.TableInfo, idxInfo *model.IndexInfo, sessCtx s
 		fieldTps:         fieldTps,
 		sessCtx:          sessCtx,
 		pushDownEncoding: variable.EnableCoprRead.Load() == "2" || variable.EnableCoprRead.Load() == "3",
+		sortInTiKV:       variable.EnableCoprRead.Load() == "3",
 	}
 	return copCtx
 }
@@ -281,7 +289,7 @@ func (c *copContext) sendIdxRecords(ctx context.Context, ch chan *indexRecord, s
 	}
 }
 
-func (c *copContext) sendEncodedIdxRecords(ctx context.Context, ch chan tipb.KVPair, startTS uint64,
+func (c *copContext) sendEncodedIdxRecords(ctx context.Context, ch chan *tipb.KVPair, sortCh chan []*tipb.KVPair, startTS uint64,
 	start, end kv.Key, traceID int64, wid int) error {
 	resp, err := c.buildScanIndexKV(ctx, startTS, start, end)
 	if err != nil {
@@ -306,13 +314,46 @@ func (c *copContext) sendEncodedIdxRecords(ctx context.Context, ch chan tipb.KVP
 			return errors.Trace(err)
 		}
 		finish()
-		for i := 0; i < len(colResp.Kv); i++ {
-			ch <- *colResp.Kv[i]
+		if c.sortInTiKV {
+			sortCh <- colResp.Kv
+		} else {
+			for i := 0; i < len(colResp.Kv); i++ {
+				ch <- colResp.Kv[i]
+			}
 		}
 	}
 }
 
-func fetchRowColValsFromCop[V *indexRecord | tipb.KVPair](w *addIndexWorker, ch chan V, buf []V,
+func fetchRowColSortValsFromCop(w *addIndexWorker, ch chan []*tipb.KVPair, buf []*tipb.KVPair,
+	handleRange reorgBackfillTask) ([]*tipb.KVPair, kv.Key, bool, error) {
+	taskDone := false
+	var err error
+	curRangeKey := string(handleRange.endKey)
+	timer := time.NewTimer(200 * time.Millisecond)
+	for {
+		select {
+		case record, more := <-ch:
+			if !more {
+				taskDone = true
+				break
+			}
+			buf = append(buf, record...)
+		case <-timer.C:
+			err, taskDone = w.copReqReaders.results.Load(curRangeKey)
+		}
+		if taskDone {
+			w.copReqReaders.results.Delete(curRangeKey)
+			break
+		}
+		if len(buf) >= w.batchCnt {
+			break
+		}
+	}
+	timer.Stop()
+	return buf, handleRange.startKey, taskDone, err
+}
+
+func fetchRowColValsFromCop[V *indexRecord | *tipb.KVPair](w *addIndexWorker, ch chan V, buf []V,
 	handleRange reorgBackfillTask) ([]V, kv.Key, bool, error) {
 	taskDone := false
 	var err error

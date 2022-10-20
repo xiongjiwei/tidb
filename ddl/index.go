@@ -1175,7 +1175,7 @@ type baseIndexWorker struct {
 	// The following attributes are used to reduce memory allocation.
 	defaultVals  []types.Datum
 	idxRecords   []*indexRecord
-	idxKVRecords []tipb.KVPair
+	idxKVRecords []*tipb.KVPair
 	rowMap       map[int64]types.Datum
 	rowDecoder   *decoder.RowDecoder
 
@@ -1489,6 +1489,7 @@ func (w *addIndexWorker) BackfillDataInTxn(handleRange reorgBackfillTask) (taskC
 	oprStartTime := time.Now()
 	ctx := kv.WithInternalSourceType(context.Background(), w.jobContext.ddlJobSourceType())
 	defer injectSpan(w.reorgInfo.Job.ID, fmt.Sprintf("%s-%d", "fetch-create-txn", w.id))()
+	sortInTiKV := false
 	errInTxn = kv.RunInNewTxn(ctx, w.sessCtx.GetStore(), true, func(ctx context.Context, txn kv.Transaction) (err error) {
 		taskCtx.addedCount = 0
 		taskCtx.scanCount = 0
@@ -1499,7 +1500,7 @@ func (w *addIndexWorker) BackfillDataInTxn(handleRange reorgBackfillTask) (taskC
 
 		var (
 			idxRecords []*indexRecord
-			idxKVs     []tipb.KVPair
+			idxKVs     []*tipb.KVPair
 			nextKey    kv.Key
 			taskDone   bool
 		)
@@ -1507,15 +1508,21 @@ func (w *addIndexWorker) BackfillDataInTxn(handleRange reorgBackfillTask) (taskC
 		var pushDownKVEncoding bool
 		if w.copReqReaders != nil {
 			pushDownKVEncoding = w.copReqReaders.kvResultsCh != nil
+			sortInTiKV = w.copReqReaders.sortKvResCh != nil
 			r := w.copReqReaders
 			if !pushDownKVEncoding {
 				w.idxRecords = w.idxRecords[:0]
 				w.idxRecords, nextKey, taskDone, err = fetchRowColValsFromCop(w, r.resultsCh, w.idxRecords, handleRange)
 				idxRecords = w.idxRecords
 			} else {
-				w.idxKVRecords = w.idxKVRecords[:0]
-				w.idxKVRecords, nextKey, taskDone, err = fetchRowColValsFromCop(w, r.kvResultsCh, w.idxKVRecords, handleRange)
-				idxKVs = w.idxKVRecords
+				if sortInTiKV {
+					w.idxKVRecords, nextKey, taskDone, err = fetchRowColSortValsFromCop(w, r.sortKvResCh, w.idxKVRecords, handleRange)
+					idxKVs = w.idxKVRecords
+				} else {
+					w.idxKVRecords = w.idxKVRecords[:0]
+					w.idxKVRecords, nextKey, taskDone, err = fetchRowColValsFromCop(w, r.kvResultsCh, w.idxKVRecords, handleRange)
+					idxKVs = w.idxKVRecords
+				}
 			}
 		} else {
 			idxRecords, nextKey, taskDone, err = w.fetchRowColVals(txn, handleRange)
@@ -1533,7 +1540,7 @@ func (w *addIndexWorker) BackfillDataInTxn(handleRange reorgBackfillTask) (taskC
 			}
 			return w.createIndexRecords(idxRecords, &taskCtx, needMergeTmpIdx, txn)
 		} else {
-			return w.createIndexKVs(idxKVs, &taskCtx, txn)
+			return w.createIndexKVs(idxKVs, &taskCtx, txn, sortInTiKV)
 		}
 	})
 	logSlowOperations(time.Since(oprStartTime), "AddIndexBackfillDataInTxn", 3000)
@@ -1594,8 +1601,16 @@ func (w *addIndexWorker) createIndexRecords(idxRecords []*indexRecord, taskCtx *
 	return nil
 }
 
-func (w *addIndexWorker) createIndexKVs(idxKVs []tipb.KVPair, taskCtx *backfillTaskContext, txn kv.Transaction) error {
+func (w *addIndexWorker) createIndexKVs(idxKVs []*tipb.KVPair, taskCtx *backfillTaskContext, txn kv.Transaction, sortInTiKv bool) error {
 	defer injectSpan(w.reorgInfo.Job.ID, fmt.Sprintf("%s-%d", "create-records", w.id))()
+	if sortInTiKv {
+		taskCtx.scanCount += len(idxKVs)
+		taskCtx.addedCount += len(idxKVs)
+		err := w.writerCtx.WriteRows(idxKVs)
+		if err != nil {
+			return errors.Trace(err)
+		}
+	}
 	for _, idxKV := range idxKVs {
 		taskCtx.scanCount++
 		// Create the index.
