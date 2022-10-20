@@ -118,6 +118,7 @@ type LocalEngineConfig struct {
 	CompactThreshold int64
 	// compact routine concurrency
 	CompactConcurrency int
+	SortKV             bool
 }
 
 // CheckCtx contains all parameters used in CheckRequirements

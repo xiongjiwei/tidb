@@ -21,6 +21,7 @@ import (
 	"github.com/pingcap/tidb/br/pkg/lightning/checkpoints"
 	"github.com/pingcap/tidb/br/pkg/lightning/config"
 	tidbconf "github.com/pingcap/tidb/config"
+	"github.com/pingcap/tidb/sessionctx/variable"
 	"github.com/pingcap/tidb/util/logutil"
 	"github.com/pingcap/tidb/util/size"
 	"go.uber.org/zap"
@@ -66,6 +67,7 @@ func generateLocalEngineConfig(id int64, dbName, tbName string) *backend.EngineC
 			Compact:            true,
 			CompactThreshold:   int64(compactMemory),
 			CompactConcurrency: compactConcurrency,
+			SortKV:             variable.EnableCoprRead.Load() == "3",
 		},
 		TableInfo: &checkpoints.TidbTableInfo{
 			ID:   id,

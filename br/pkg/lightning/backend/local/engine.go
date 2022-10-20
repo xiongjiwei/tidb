@@ -1057,6 +1057,7 @@ func (w *Writer) appendRowsSorted(kvs []common.KvPair) error {
 func (w *Writer) appendRowsUnsorted(ctx context.Context, kvs []common.KvPair) error {
 	l := len(w.writeBatch)
 	cnt := w.batchCount
+	prevCnt := cnt
 	var lastKey []byte
 	if cnt > 0 {
 		lastKey = w.writeBatch[cnt-1].Key
@@ -1081,12 +1082,37 @@ func (w *Writer) appendRowsUnsorted(ctx context.Context, kvs []common.KvPair) er
 	}
 	w.batchCount = cnt
 
+	if w.engine.config.SortKV {
+		merge(w.writeBatch, prevCnt, w.writeBatch[l:cnt], cnt-prevCnt)
+		w.isWriteBatchSorted = true
+	}
+
 	if w.batchSize > w.memtableSizeLimit {
 		if err := w.flushKVs(ctx); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func merge(nums1 []common.KvPair, m int, nums2 []common.KvPair, n int) {
+	for p1, p2, tail := m-1, n-1, m+n-1; p1 >= 0 || p2 >= 0; tail-- {
+		var cur common.KvPair
+		if p1 == -1 {
+			cur = nums2[p2]
+			p2--
+		} else if p2 == -1 {
+			cur = nums1[p1]
+			p1--
+		} else if bytes.Compare(nums1[p1].Key, nums2[p2].Key) > 0 {
+			cur = nums1[p1]
+			p1--
+		} else {
+			cur = nums2[p2]
+			p2--
+		}
+		nums1[tail], cur = cur, nums1[tail]
+	}
 }
 
 func (w *Writer) AppendRows(ctx context.Context, tableName string, columnNames []string, rows kv.Rows) error {
