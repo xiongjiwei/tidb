@@ -308,7 +308,7 @@ func (c *copContext) sendEncodedIdxRecords(ctx context.Context, ch chan *tipb.KV
 			return nil
 		}
 		colResp.Reset()
-		colResp.Kv = make([]*tipb.KVPair, 0, 2*1024*1024)
+		colResp.Kv = make([]*tipb.KVPair, 0, 1024*1024)
 		if err = colResp.Unmarshal(data.GetData()); err != nil {
 			finish()
 			return errors.Trace(err)
@@ -326,31 +326,17 @@ func (c *copContext) sendEncodedIdxRecords(ctx context.Context, ch chan *tipb.KV
 
 func fetchRowColSortValsFromCop(w *addIndexWorker, ch chan []*tipb.KVPair, buf []*tipb.KVPair,
 	handleRange reorgBackfillTask) ([]*tipb.KVPair, kv.Key, bool, error) {
-	taskDone := false
 	var err error
-	curRangeKey := string(handleRange.endKey)
-	timer := time.NewTimer(200 * time.Millisecond)
-	for {
-		select {
-		case record, more := <-ch:
-			if !more {
-				taskDone = true
-				break
-			}
-			buf = append(buf, record...)
-		case <-timer.C:
-			err, taskDone = w.copReqReaders.results.Load(curRangeKey)
-		}
-		if taskDone {
-			w.copReqReaders.results.Delete(curRangeKey)
+	select {
+	case record, more := <-ch:
+		if !more {
+			buf = buf[:0]
 			break
 		}
-		if len(buf) >= w.batchCnt {
-			break
-		}
+		buf = record
+		break
 	}
-	timer.Stop()
-	return buf, handleRange.startKey, taskDone, err
+	return buf, handleRange.startKey, true, err
 }
 
 func fetchRowColValsFromCop[V *indexRecord | *tipb.KVPair](w *addIndexWorker, ch chan V, buf []V,
