@@ -1096,6 +1096,9 @@ func (w *Writer) appendRowsUnsorted(ctx context.Context, kvs []common.KvPair) er
 }
 
 func merge(nums1 []common.KvPair, m int, nums2 []common.KvPair, n int) {
+	copy2 := make([]common.KvPair, 0, n)
+	copy2 = append(copy2, nums2...)
+	nums2 = copy2
 	for p1, p2, tail := m-1, n-1, m+n-1; p1 >= 0 || p2 >= 0; tail-- {
 		var cur common.KvPair
 		if p1 == -1 {
@@ -1111,7 +1114,7 @@ func merge(nums1 []common.KvPair, m int, nums2 []common.KvPair, n int) {
 			cur = nums2[p2]
 			p2--
 		}
-		nums1[tail], cur = cur, nums1[tail]
+		nums1[tail] = cur
 	}
 }
 
