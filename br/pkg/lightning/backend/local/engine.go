@@ -1083,7 +1083,7 @@ func (w *Writer) appendRowsUnsorted(ctx context.Context, kvs []common.KvPair) er
 	w.batchCount = cnt
 
 	if w.engine.config.SortKV {
-		merge(w.writeBatch, prevCnt, w.writeBatch[l:cnt], cnt-prevCnt)
+		merge(w.writeBatch, prevCnt, w.writeBatch[prevCnt:cnt], cnt-prevCnt)
 		w.isWriteBatchSorted = true
 	}
 
