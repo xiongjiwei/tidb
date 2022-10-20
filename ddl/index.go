@@ -1610,6 +1610,7 @@ func (w *addIndexWorker) createIndexKVs(idxKVs []*tipb.KVPair, taskCtx *backfill
 		if err != nil {
 			return errors.Trace(err)
 		}
+		return nil
 	}
 	for _, idxKV := range idxKVs {
 		taskCtx.scanCount++
