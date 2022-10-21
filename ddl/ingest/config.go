@@ -68,7 +68,6 @@ func generateLocalEngineConfig(id int64, dbName, tbName string) *backend.EngineC
 			CompactThreshold:   int64(compactMemory),
 			CompactConcurrency: compactConcurrency,
 			SortKV:             variable.EnableCoprRead.Load() == "3",
-			Compress:           false,
 		},
 		TableInfo: &checkpoints.TidbTableInfo{
 			ID:   id,
