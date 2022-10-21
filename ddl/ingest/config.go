@@ -64,10 +64,11 @@ var (
 func generateLocalEngineConfig(id int64, dbName, tbName string) *backend.EngineConfig {
 	return &backend.EngineConfig{
 		Local: &backend.LocalEngineConfig{
-			Compact:            true,
+			Compact:            false,
 			CompactThreshold:   int64(compactMemory),
 			CompactConcurrency: compactConcurrency,
 			SortKV:             variable.EnableCoprRead.Load() == "3",
+			Compress:           false,
 		},
 		TableInfo: &checkpoints.TidbTableInfo{
 			ID:   id,
