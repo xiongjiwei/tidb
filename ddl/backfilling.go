@@ -19,7 +19,6 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"math/rand"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -353,11 +352,11 @@ func splitTableRanges(t table.PhysicalTable, store kv.Storage, startKey, endKey 
 	bo := backoff.NewBackofferWithVars(context.Background(), maxSleep, nil)
 	rc := copr.NewRegionCache(s.GetRegionCache())
 	ranges, err := rc.SplitRegionRanges(bo, []kv.KeyRange{kvRange})
-	if variable.EnableCoprRead.Load() == "3" {
-		rand.Shuffle(len(ranges), func(i, j int) {
-			ranges[i], ranges[j] = ranges[j], ranges[i]
-		})
-	}
+	//if variable.EnableCoprRead.Load() == "3" {
+	//	rand.Shuffle(len(ranges), func(i, j int) {
+	//		ranges[i], ranges[j] = ranges[j], ranges[i]
+	//	})
+	//}
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
