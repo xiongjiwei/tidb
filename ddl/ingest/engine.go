@@ -16,7 +16,6 @@ package ingest
 
 import (
 	"context"
-	"github.com/pingcap/tipb/go-tipb"
 	"strconv"
 
 	"github.com/google/uuid"
@@ -193,14 +192,14 @@ func (wCtx *WriterContext) WriteRow(key, idxVal []byte) error {
 }
 
 // WriteRows Write one row into local writer buffer.
-func (wCtx *WriterContext) WriteRows(idxKVs []*tipb.KVPair) error {
-	if len(idxKVs) == 0 {
+func (wCtx *WriterContext) WriteRows(keys [][]byte, values [][]byte) error {
+	if len(keys) == 0 {
 		return nil
 	}
-	kvs := make([]common.KvPair, len(idxKVs))
-	for i := 0; i < len(idxKVs); i++ {
-		kvs[i].Key = idxKVs[i].Key
-		kvs[i].Val = idxKVs[i].Value
+	kvs := make([]common.KvPair, len(keys))
+	for i := 0; i < len(keys); i++ {
+		kvs[i].Key = keys[i]
+		kvs[i].Val = values[i]
 	}
 	row := kv.MakeRowsFromKvPairs(kvs)
 	return wCtx.lWrite.WriteRows(wCtx.ctx, nil, row)

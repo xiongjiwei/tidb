@@ -54,8 +54,8 @@ type copContext struct {
 type copReqReaders struct {
 	tasksCh     chan *reorgBackfillTask
 	resultsCh   chan *indexRecord
-	kvResultsCh chan *tipb.KVPair
-	sortKvResCh chan []*tipb.KVPair
+	kvResultsCh chan *KvPair
+	sortKvResCh chan *KvsPair
 	results     generic.SyncMap[string, error]
 }
 
@@ -66,9 +66,19 @@ type copReqReader struct {
 	srcChunk *chunk.Chunk
 
 	idxRecordChan chan *indexRecord
-	idxKVChan     chan *tipb.KVPair
-	sortIdxKVChan chan []*tipb.KVPair
+	idxKVChan     chan *KvPair
+	sortIdxKVChan chan *KvsPair
 	results       *generic.SyncMap[string, error]
+}
+
+type KvPair struct {
+	key   []byte
+	value []byte
+}
+
+type KvsPair struct {
+	keys   [][]byte
+	values [][]byte
 }
 
 func (c *copReqReader) run(ctx context.Context, wg *sync.WaitGroup, tasks chan *reorgBackfillTask) {
@@ -101,9 +111,9 @@ func newCopReqReaders(ctx context.Context, copCtx *copContext, jobID int64, read
 		results: generic.NewSyncMap[string, error](readerCnt),
 	}
 	if copCtx.pushDownEncoding {
-		p.kvResultsCh = make(chan *tipb.KVPair, int(variable.MaxDDLReorgBatchSize))
+		p.kvResultsCh = make(chan *KvPair, int(variable.MaxDDLReorgBatchSize))
 		if copCtx.sortInTiKV {
-			p.sortKvResCh = make(chan []*tipb.KVPair, 20)
+			p.sortKvResCh = make(chan *KvsPair, 10)
 		}
 	} else {
 		p.resultsCh = make(chan *indexRecord, int(variable.MaxDDLReorgBatchSize))
@@ -289,7 +299,7 @@ func (c *copContext) sendIdxRecords(ctx context.Context, ch chan *indexRecord, s
 	}
 }
 
-func (c *copContext) sendEncodedIdxRecords(ctx context.Context, ch chan *tipb.KVPair, sortCh chan []*tipb.KVPair, startTS uint64,
+func (c *copContext) sendEncodedIdxRecords(ctx context.Context, ch chan *KvPair, sortCh chan *KvsPair, startTS uint64,
 	start, end kv.Key, traceID int64, wid int) error {
 	resp, err := c.buildScanIndexKV(ctx, startTS, start, end)
 	if err != nil {
@@ -308,38 +318,35 @@ func (c *copContext) sendEncodedIdxRecords(ctx context.Context, ch chan *tipb.KV
 			return nil
 		}
 		colResp.Reset()
-		colResp.Kv = make([]*tipb.KVPair, 0, 1024*1024)
+		colResp.Keys = make([][]byte, 0, 1024*1024)
+		colResp.Values = make([][]byte, 0, 1024*1024)
 		if err = colResp.Unmarshal(data.GetData()); err != nil {
 			finish()
 			return errors.Trace(err)
 		}
 		finish()
 		if c.sortInTiKV {
-			sortCh <- colResp.Kv
+			sortCh <- &KvsPair{keys: colResp.Keys, values: colResp.Values}
 		} else {
-			for i := 0; i < len(colResp.Kv); i++ {
-				ch <- colResp.Kv[i]
+			for i := 0; i < len(colResp.Keys); i++ {
+				ch <- &KvPair{colResp.Keys[i], colResp.Values[i]}
 			}
 		}
 	}
 }
 
-func fetchRowColSortValsFromCop(w *addIndexWorker, ch chan []*tipb.KVPair, buf []*tipb.KVPair,
-	handleRange reorgBackfillTask) ([]*tipb.KVPair, kv.Key, bool, error) {
-	var err error
+func fetchRowColSortValsFromCop(w *addIndexWorker, ch chan *KvsPair,
+	handleRange reorgBackfillTask) (*KvsPair, kv.Key, bool, error) {
 	select {
-	case record, more := <-ch:
+	case records, more := <-ch:
 		if !more {
-			buf = buf[:0]
-			break
+			return nil, handleRange.startKey, true, nil
 		}
-		buf = record
-		break
+		return records, handleRange.startKey, true, nil
 	}
-	return buf, handleRange.startKey, true, err
 }
 
-func fetchRowColValsFromCop[V *indexRecord | *tipb.KVPair](w *addIndexWorker, ch chan V, buf []V,
+func fetchRowColValsFromCop[V *indexRecord | *KvPair](w *addIndexWorker, ch chan V, buf []V,
 	handleRange reorgBackfillTask) ([]V, kv.Key, bool, error) {
 	taskDone := false
 	var err error

@@ -47,7 +47,6 @@ import (
 	"github.com/pingcap/tidb/util/dbterror"
 	"github.com/pingcap/tidb/util/logutil"
 	decoder "github.com/pingcap/tidb/util/rowDecoder"
-	"github.com/pingcap/tipb/go-tipb"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/tikv/client-go/v2/oracle"
 	"github.com/tikv/client-go/v2/tikv"
@@ -1173,11 +1172,12 @@ type baseIndexWorker struct {
 	metricCounter prometheus.Counter
 
 	// The following attributes are used to reduce memory allocation.
-	defaultVals  []types.Datum
-	idxRecords   []*indexRecord
-	idxKVRecords []*tipb.KVPair
-	rowMap       map[int64]types.Datum
-	rowDecoder   *decoder.RowDecoder
+	defaultVals       []types.Datum
+	idxRecords        []*indexRecord
+	idxKVRecords      []*KvPair
+	idxBatchKVRecords *KvsPair
+	rowMap            map[int64]types.Datum
+	rowDecoder        *decoder.RowDecoder
 
 	sqlMode    mysql.SQLMode
 	jobContext *JobContext
@@ -1500,7 +1500,7 @@ func (w *addIndexWorker) BackfillDataInTxn(handleRange reorgBackfillTask) (taskC
 
 		var (
 			idxRecords []*indexRecord
-			idxKVs     []*tipb.KVPair
+			idxKVs     []*KvPair
 			nextKey    kv.Key
 			taskDone   bool
 		)
@@ -1516,7 +1516,7 @@ func (w *addIndexWorker) BackfillDataInTxn(handleRange reorgBackfillTask) (taskC
 				idxRecords = w.idxRecords
 			} else {
 				if sortInTiKV {
-					w.idxKVRecords, nextKey, taskDone, err = fetchRowColSortValsFromCop(w, r.sortKvResCh, w.idxKVRecords, handleRange)
+					w.idxBatchKVRecords, nextKey, taskDone, err = fetchRowColSortValsFromCop(w, r.sortKvResCh, handleRange)
 					idxKVs = w.idxKVRecords
 				} else {
 					w.idxKVRecords = w.idxKVRecords[:0]
@@ -1540,7 +1540,7 @@ func (w *addIndexWorker) BackfillDataInTxn(handleRange reorgBackfillTask) (taskC
 			}
 			return w.createIndexRecords(idxRecords, &taskCtx, needMergeTmpIdx, txn)
 		} else {
-			return w.createIndexKVs(idxKVs, &taskCtx, txn, sortInTiKV)
+			return w.createIndexKVs(idxKVs, w.idxBatchKVRecords, &taskCtx, txn, sortInTiKV)
 		}
 	})
 	logSlowOperations(time.Since(oprStartTime), "AddIndexBackfillDataInTxn", 3000)
@@ -1601,12 +1601,12 @@ func (w *addIndexWorker) createIndexRecords(idxRecords []*indexRecord, taskCtx *
 	return nil
 }
 
-func (w *addIndexWorker) createIndexKVs(idxKVs []*tipb.KVPair, taskCtx *backfillTaskContext, txn kv.Transaction, sortInTiKv bool) error {
+func (w *addIndexWorker) createIndexKVs(idxKVs []*KvPair, sortIdxKVs *KvsPair, taskCtx *backfillTaskContext, txn kv.Transaction, sortInTiKv bool) error {
 	defer injectSpan(w.reorgInfo.Job.ID, fmt.Sprintf("%s-%d", "create-records", w.id))()
 	if sortInTiKv {
-		taskCtx.scanCount += len(idxKVs)
-		taskCtx.addedCount += len(idxKVs)
-		err := w.writerCtx.WriteRows(idxKVs)
+		taskCtx.scanCount += len(sortIdxKVs.keys)
+		taskCtx.addedCount += len(sortIdxKVs.keys)
+		err := w.writerCtx.WriteRows(sortIdxKVs.keys, sortIdxKVs.values)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -1616,13 +1616,13 @@ func (w *addIndexWorker) createIndexKVs(idxKVs []*tipb.KVPair, taskCtx *backfill
 		taskCtx.scanCount++
 		// Create the index.
 		if w.writerCtx == nil {
-			err := txn.GetMemBuffer().Set(idxKV.Key, idxKV.Value)
+			err := txn.GetMemBuffer().Set(idxKV.key, idxKV.value)
 			if err != nil {
 				return errors.Trace(err)
 			}
 		} else { // The lightning environment is ready.
 			if len(idxKVs) != 0 {
-				err := w.writerCtx.WriteRow(idxKV.Key, idxKV.Value)
+				err := w.writerCtx.WriteRow(idxKV.key, idxKV.value)
 				if err != nil {
 					return errors.Trace(err)
 				}
