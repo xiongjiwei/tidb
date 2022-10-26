@@ -1087,7 +1087,7 @@ func (w *Writer) appendRowsUnsorted(ctx context.Context, kvs []common.KvPair) er
 		w.isWriteBatchSorted = true
 	}
 
-	if w.batchSize > w.memtableSizeLimit || w.engine.config.SortKV {
+	if w.batchSize > w.memtableSizeLimit {
 		if err := w.flushKVs(ctx); err != nil {
 			return err
 		}
