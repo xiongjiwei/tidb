@@ -89,7 +89,7 @@ const (
 	// contribute 2.3 GiB to the reserved size.
 	// autoDiskQuotaLocalReservedSpeed uint64 = 1 * units.KiB
 	defaultEngineMemCacheSize      = 512 * units.MiB
-	defaultLocalWriterMemCacheSize = 512 * units.MiB
+	defaultLocalWriterMemCacheSize = 128 * units.MiB
 
 	defaultCSVDataCharacterSet       = "binary"
 	defaultCSVDataInvalidCharReplace = utf8.RuneError
