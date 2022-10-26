@@ -1015,6 +1015,7 @@ type Writer struct {
 
 	batchCount int
 	batchSize  int64
+	writeTime  int
 
 	lastMetaSeq int32
 }
@@ -1081,6 +1082,7 @@ func (w *Writer) appendRowsUnsorted(ctx context.Context, kvs []common.KvPair) er
 		cnt++
 	}
 	w.batchCount = cnt
+	w.writeTime++
 
 	if w.engine.config.SortKV {
 		merge(w.writeBatch, prevCnt, w.writeBatch[prevCnt:cnt], cnt-prevCnt)
@@ -1088,9 +1090,11 @@ func (w *Writer) appendRowsUnsorted(ctx context.Context, kvs []common.KvPair) er
 	}
 
 	if w.batchSize > w.memtableSizeLimit {
+		w.engine.logger.Warn("memtable size limit reached", zap.Any("write time", w.writeTime), zap.Any("key num", w.batchCount))
 		if err := w.flushKVs(ctx); err != nil {
 			return err
 		}
+		w.writeTime = 0
 	}
 	return nil
 }
