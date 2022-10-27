@@ -1337,13 +1337,10 @@ func (w *updateColumnWorker) BackfillDataInTxn(handleRange reorgBackfillTask) (t
 
 		warningsMap := make(map[errors.ErrorID]*terror.Error, len(rowRecords))
 		warningsCountMap := make(map[errors.ErrorID]int64, len(rowRecords))
+		keys := make([]kv.Key, 0, len(rowRecords))
 		for _, rowRecord := range rowRecords {
 			taskCtx.scanCount++
-
-			err = txn.LockKeys(ctx, new(kv.LockCtx), rowRecord.key)
-			if err != nil {
-				return errors.Trace(err)
-			}
+			keys = append(keys, rowRecord.key)
 			//err = txn.Set(rowRecord.key, rowRecord.vals)
 			//if err != nil {
 			//	return errors.Trace(err)
@@ -1357,6 +1354,11 @@ func (w *updateColumnWorker) BackfillDataInTxn(handleRange reorgBackfillTask) (t
 					warningsMap[rowRecord.warning.ID()] = rowRecord.warning
 				}
 			}
+		}
+
+		err = txn.LockKeys(ctx, new(kv.LockCtx), keys...)
+		if err != nil {
+			return errors.Trace(err)
 		}
 
 		// Collect the warnings.
