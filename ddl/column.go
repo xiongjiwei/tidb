@@ -1340,10 +1340,14 @@ func (w *updateColumnWorker) BackfillDataInTxn(handleRange reorgBackfillTask) (t
 		for _, rowRecord := range rowRecords {
 			taskCtx.scanCount++
 
-			err = txn.Set(rowRecord.key, rowRecord.vals)
+			err = txn.LockKeys(ctx, new(kv.LockCtx), rowRecord.key)
 			if err != nil {
 				return errors.Trace(err)
 			}
+			//err = txn.Set(rowRecord.key, rowRecord.vals)
+			//if err != nil {
+			//	return errors.Trace(err)
+			//}
 			taskCtx.addedCount++
 			if rowRecord.warning != nil {
 				if _, ok := warningsCountMap[rowRecord.warning.ID()]; ok {
